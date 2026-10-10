@@ -171,7 +171,7 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
 - **Words:** case-insensitive runs of Unicode letters and digits, with inner apostrophes allowed.
 - **Top-5:** by count descending, then by word ascending (ordinal), so ties are deterministic.
 - **SHA-256:** over the UTF-8 bytes of the original content, as lowercase hex.
-- **Extra metadata:** character count, line count, average word length, processing time.
+- **Metrics:** exactly the four the spec lists (word count, unique word count, top-5 words, SHA-256). No extra metadata. The analyzer is pure (no clock), so results are deterministic.
 - **Errors:** an exception on one document produces a `Failed` `DocumentResult`, and the job continues.
 
 ### Job outcome semantics

@@ -8,8 +8,4 @@ public sealed record DocumentResult(
     int UniqueWordCount,
     IReadOnlyList<WordFrequency> TopWords,
     string Sha256,
-    int CharacterCount,
-    int LineCount,
-    double AverageWordLength,
-    double ProcessingTimeMs,
     string? Error = null);
