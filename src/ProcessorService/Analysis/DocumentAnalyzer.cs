@@ -9,5 +9,16 @@ namespace ProcessorService.Analysis;
 /// </summary>
 public sealed class DocumentAnalyzer : IDocumentAnalyzer
 {
-    public DocumentResult Analyze(DocumentInput document) => throw new NotImplementedException();
+    public DocumentResult Analyze(DocumentInput document)
+    {
+        var words = TextMetrics.Tokenize(document.Content);
+        var frequencies = TextMetrics.CountFrequencies(words);
+
+        return new DocumentResult(
+            DocumentId: document.Id,
+            WordCount: words.Count,
+            UniqueWordCount: frequencies.Count,
+            TopWords: TextMetrics.TopWords(frequencies, DocumentLimits.TopWordsCount),
+            Sha256: TextMetrics.Sha256Hex(document.Content));
+    }
 }
