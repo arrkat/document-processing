@@ -22,7 +22,7 @@ public interface IJobRegistry
     /// <summary>The token fires when the job is cancelled through <see cref="RequestCancel"/>.</summary>
     bool TryGetCancellationToken(string jobId, out CancellationToken cancellationToken);
 
-    CancelOutcome RequestCancel(string jobId);
+    CancelProcessingJobResult RequestCancel(string jobId);
 
     void ReportProgress(string jobId, int processedDocuments);
 

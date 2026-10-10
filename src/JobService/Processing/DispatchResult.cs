@@ -1,6 +1,6 @@
 namespace JobService.Processing;
 
-public enum SubmitJobOutcome
+public enum DispatchResult
 {
     /// <summary>202 (new) or 200 (already known — idempotent resubmit).</summary>
     Accepted,

@@ -26,10 +26,10 @@ public sealed class JobsController(IJobManager manager) : ControllerBase
     public async Task<IActionResult> Create(
         [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] CreateJobRequest? request, CancellationToken ct)
     {
-        var outcome = await manager.CreateAsync(request, ct);
-        return outcome.Job is { } job
+        var result = await manager.CreateAsync(request, ct);
+        return result.Job is { } job
             ? AcceptedAtAction(nameof(Get), new { jobId = job.Id }, job)
-            : ValidationProblem(new ValidationProblemDetails(new Dictionary<string, string[]>(outcome.Errors!)));
+            : ValidationProblem(new ValidationProblemDetails(new Dictionary<string, string[]>(result.Errors!)));
     }
 
     /// <summary>List jobs, newest first.</summary>
@@ -76,12 +76,12 @@ public sealed class JobsController(IJobManager manager) : ControllerBase
     public async Task<IActionResult> Cancel(string jobId, CancellationToken ct) =>
         await manager.CancelAsync(jobId, ct) switch
         {
-            CancelJobOutcome.Accepted => AcceptedAtAction(nameof(Get), new { jobId }, null),
-            CancelJobOutcome.NotFound => NotFound(),
-            CancelJobOutcome.AlreadyTerminal => Problem(
+            CancelJobResult.Accepted => AcceptedAtAction(nameof(Get), new { jobId }, null),
+            CancelJobResult.NotFound => NotFound(),
+            CancelJobResult.AlreadyTerminal => Problem(
                 title: "Job already finished",
                 detail: $"Job '{jobId}' is already in a final state and cannot be cancelled.",
                 statusCode: StatusCodes.Status409Conflict),
-            var outcome => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Unknown cancel outcome.")
+            var result => throw new ArgumentOutOfRangeException(nameof(result), result, "Unknown cancel result.")
         };
 }

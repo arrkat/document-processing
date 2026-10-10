@@ -1,6 +1,6 @@
 namespace JobService.Application;
 
-public enum CancelJobOutcome
+public enum CancelJobResult
 {
     Accepted,
     NotFound,

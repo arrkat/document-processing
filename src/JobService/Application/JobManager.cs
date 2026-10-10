@@ -17,7 +17,7 @@ public sealed class JobManager(
     TimeProvider timeProvider,
     ILogger<JobManager> logger) : IJobManager
 {
-    public Task<CreateJobOutcome> CreateAsync(CreateJobRequest? request, CancellationToken cancellationToken = default) =>
+    public Task<CreateJobResult> CreateAsync(CreateJobRequest? request, CancellationToken cancellationToken = default) =>
         throw new NotImplementedException();
 
     public Task<PagedResult<JobSummary>> ListAsync(JobStatus? status, int page, int pageSize, CancellationToken cancellationToken = default) =>
@@ -29,6 +29,6 @@ public sealed class JobManager(
     public Task<IReadOnlyList<DocumentResult>?> GetResultsAsync(string jobId, CancellationToken cancellationToken = default) =>
         throw new NotImplementedException();
 
-    public Task<CancelJobOutcome> CancelAsync(string jobId, CancellationToken cancellationToken = default) =>
+    public Task<CancelJobResult> CancelAsync(string jobId, CancellationToken cancellationToken = default) =>
         throw new NotImplementedException();
 }

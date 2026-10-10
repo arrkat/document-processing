@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Contracts;
 using Contracts.Processing;
 
@@ -5,24 +6,108 @@ namespace ProcessorService.Jobs;
 
 public sealed class JobRegistry : IJobRegistry
 {
-    public bool TryRegister(ProcessingJob job) => throw new NotImplementedException();
+    private readonly ConcurrentDictionary<string, Entry> _jobs = new(StringComparer.Ordinal);
 
-    public ProcessingJobStatus? GetStatus(string jobId) => throw new NotImplementedException();
+    public bool TryRegister(ProcessingJob job) => _jobs.TryAdd(job.JobId, new Entry(job));
 
-    public IReadOnlyList<ProcessingJobStatus> GetAll() => throw new NotImplementedException();
+    public ProcessingJobStatus? GetStatus(string jobId) => _jobs.TryGetValue(jobId, out var entry) ? entry.Snapshot() : null;
 
-    public bool TryGetCancellationToken(string jobId, out CancellationToken cancellationToken) =>
-        throw new NotImplementedException();
+    public IReadOnlyList<ProcessingJobStatus> GetAll() => _jobs.Values.Select(entry => entry.Snapshot()).ToList();
 
-    public CancelOutcome RequestCancel(string jobId) => throw new NotImplementedException();
+    public bool TryGetCancellationToken(string jobId, out CancellationToken cancellationToken)
+    {
+        cancellationToken = _jobs.TryGetValue(jobId, out var entry) ? entry.Cancellation.Token : CancellationToken.None;
+        return entry is not null;
+    }
 
-    public void ReportProgress(string jobId, int processedDocuments) => throw new NotImplementedException();
+    public CancelProcessingJobResult RequestCancel(string jobId)
+    {
+        if (!_jobs.TryGetValue(jobId, out var entry))
+            return CancelProcessingJobResult.NotFound;
 
-    public bool TryMarkFinished(string jobId, string resultsRef) => throw new NotImplementedException();
+        lock (entry.Gate)
+        {
+            if (entry.Status != ProcessingStatus.Processing)
+                return CancelProcessingJobResult.AlreadyFinished;
+        }
 
-    public bool TryMarkFailed(string jobId, ErrorCode errorCode, string? errorMessage) => throw new NotImplementedException();
+        // Outside the lock: Cancel() runs registered callbacks synchronously, and code must never run foreign
+        // callbacks while holding a lock. If the job finishes in between, the cancel is a harmless no-op
+        // (the first terminal state wins).
+        entry.Cancellation.Cancel();
+        return CancelProcessingJobResult.CancellationRequested;
+    }
 
-    public bool TryMarkCancelled(string jobId) => throw new NotImplementedException();
+    public void ReportProgress(string jobId, int processedDocuments)
+    {
+        var entry = Get(jobId);
+        lock (entry.Gate)
+        {
+            if (entry.Status == ProcessingStatus.Processing)
+                entry.ProcessedDocuments = Math.Max(entry.ProcessedDocuments, processedDocuments);
+        }
+    }
 
-    public long NextSequence(string jobId) => throw new NotImplementedException();
+    public bool TryMarkFinished(string jobId, string resultsRef) =>
+        TryFinish(jobId, ProcessingStatus.Finished, entry =>
+        {
+            entry.ProcessedDocuments = entry.TotalDocuments;
+            entry.ResultsRef = resultsRef;
+        });
+
+    public bool TryMarkFailed(string jobId, ErrorCode errorCode, string? errorMessage) =>
+        TryFinish(jobId, ProcessingStatus.Failed, entry =>
+        {
+            entry.ErrorCode = errorCode;
+            entry.ErrorMessage = errorMessage;
+        });
+
+    public bool TryMarkCancelled(string jobId) => TryFinish(jobId, ProcessingStatus.Cancelled, _ => { });
+
+    public long NextSequence(string jobId) => Interlocked.Increment(ref Get(jobId).Sequence);
+
+    private bool TryFinish(string jobId, ProcessingStatus terminal, Action<Entry> apply)
+    {
+        var entry = Get(jobId);
+        lock (entry.Gate)
+        {
+            if (entry.Status != ProcessingStatus.Processing)
+                return false; // the first terminal state wins
+
+            entry.Status = terminal;
+            apply(entry);
+            return true;
+        }
+    }
+
+    private Entry Get(string jobId) =>
+        _jobs.TryGetValue(jobId, out var entry)
+            ? entry
+            : throw new InvalidOperationException($"Job '{jobId}' is not registered.");
+
+    /// <summary>Mutable per-job record. Its fields are guarded by <see cref="Gate"/> (except <see cref="Sequence"/>, which is Interlocked).</summary>
+    private sealed class Entry(ProcessingJob job)
+    {
+        /// <summary>The only lock for this entry. A dedicated object, never <c>this</c>, so no other code can take the same lock.</summary>
+        public object Gate { get; } = new();
+
+        public string JobId { get; } = job.JobId;
+        public int TotalDocuments { get; } = job.DocumentCount;
+
+        // Never disposed: it has no timer, and finished jobs stay in the registry.
+        public CancellationTokenSource Cancellation { get; } = new();
+
+        public ProcessingStatus Status { get; set; } = ProcessingStatus.Processing;
+        public int ProcessedDocuments { get; set; }
+        public string? ResultsRef { get; set; }
+        public ErrorCode? ErrorCode { get; set; }
+        public string? ErrorMessage { get; set; }
+        public long Sequence;
+
+        public ProcessingJobStatus Snapshot()
+        {
+            lock (Gate)
+                return new ProcessingJobStatus(JobId, Status, ProcessedDocuments, TotalDocuments, ResultsRef, ErrorCode, ErrorMessage);
+        }
+    }
 }

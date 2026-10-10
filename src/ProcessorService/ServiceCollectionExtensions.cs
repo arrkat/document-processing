@@ -3,7 +3,7 @@ using Contracts.Events;
 using Microsoft.Extensions.Options;
 using ProcessorService.Analysis;
 using ProcessorService.Events;
-using ProcessorService.Intake;
+using ProcessorService.Application;
 using ProcessorService.Jobs;
 using ProcessorService.Processing;
 using ProcessorService.Settings;
@@ -23,7 +23,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDocumentAnalyzer, DocumentAnalyzer>();
         services.AddSingleton<IJobRegistry, JobRegistry>();
         services.AddSingleton<IProcessJobRequestValidator, ProcessJobRequestValidator>();
-        services.AddSingleton<IJobIntake, JobIntake>();
+        services.AddSingleton<IProcessingJobManager, ProcessingJobManager>();
 
         // Outbound events: the worker writes, the WebSocket client is the single reader.
         services.AddSingleton(sp => Channel.CreateBounded<ProcessingEvent>(

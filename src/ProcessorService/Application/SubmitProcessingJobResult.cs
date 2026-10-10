@@ -1,6 +1,6 @@
-namespace ProcessorService.Intake;
+namespace ProcessorService.Application;
 
-public enum SubmitStatus
+public enum SubmitProcessingJobStatus
 {
     /// <summary>202: the job started.</summary>
     Accepted,
@@ -15,5 +15,5 @@ public enum SubmitStatus
     Busy
 }
 
-/// <param name="Errors">Set only for <see cref="SubmitStatus.Invalid"/>.</param>
-public sealed record SubmitOutcome(SubmitStatus Status, IReadOnlyDictionary<string, string[]>? Errors = null);
+/// <param name="Errors">Set only for <see cref="SubmitProcessingJobStatus.Invalid"/>.</param>
+public sealed record SubmitProcessingJobResult(SubmitProcessingJobStatus Status, IReadOnlyDictionary<string, string[]>? Errors = null);

@@ -1,6 +1,6 @@
 namespace ProcessorService.Processing;
 
-public enum StartOutcome
+public enum StartJobResult
 {
     Started,
 

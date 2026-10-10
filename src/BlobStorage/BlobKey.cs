@@ -24,9 +24,13 @@ public static partial class BlobKey
             throw new ArgumentException($"Invalid blob key '{key}'.", nameof(key));
     }
 
+    /// <summary>True if <paramref name="segment"/> can be used as one path segment of a key (letters, digits, '-', '_').</summary>
+    public static bool IsValidSegment(string? segment) =>
+        !string.IsNullOrEmpty(segment) && SegmentPattern().IsMatch(segment);
+
     private static string RequireSegment(string segment)
     {
-        if (string.IsNullOrEmpty(segment) || !SegmentPattern().IsMatch(segment))
+        if (!IsValidSegment(segment))
             throw new ArgumentException($"Invalid key segment '{segment}'.", nameof(segment));
         return segment;
     }

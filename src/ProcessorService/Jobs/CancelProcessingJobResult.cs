@@ -1,6 +1,6 @@
 namespace ProcessorService.Jobs;
 
-public enum CancelOutcome
+public enum CancelProcessingJobResult
 {
     CancellationRequested,
     NotFound,

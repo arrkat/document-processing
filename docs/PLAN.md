@@ -19,8 +19,8 @@ The graders care about structure, failure handling, concurrency, tests and docum
 | 1 | Skeleton: projects, contracts, interfaces, REST/WS routes, DI, blob storage | ~1h | ✅ Done |
 | 2 | Document analyzer | 1h | ✅ Done |
 | 2b | Design refinement: one waiting line (Option C), Finished vs Completed, results only in the blob, size assumptions, controllers + Swagger | ~1h | ✅ Done |
-| 3 | Processor pipeline | 1.5h | ⏭ Next |
-| 4 | Job Service core | 1.5h | ⬜ |
+| 3 | Processor pipeline | 1.5h | ✅ Done |
+| 4 | Job Service core | 1.5h | ⏭ Next |
 | 5 | WebSocket link | 1.5h | ⬜ |
 | 6 | End-to-end + load | 1h | ⬜ |
 | 7 | Docs + deliverables | 1h | ⬜ |
@@ -58,9 +58,10 @@ JobDispatcher, one job at a time in FIFO order:
    400 Rejected    → Failed(ProcessorRejected)
 
 ── Processor ───────────────────────────────────────────────────────────────────
-JobIntake: validate (400) → already known? (200) → IJobRunner.TryStart:
+ProcessingJobManager: validate (400) → IJobRunner.TryStart (admission, one lock):
+   already known? → 200 (checked first, so a retry of a running job is never told Busy)
    free job slot? no → 503 Busy (nothing registered)
-   register atomically → start in background → 202
+   register → start in background → 202
 ProcessingWorker.ProcessAsync:
    ProcessingStarted → read documents blob → analyse docs (per-job parallelism + global SemaphoreSlim)
    → throttled ProcessingProgress → write blob jobs/{id}/results.json → ProcessingFinished { resultsRef } → free the slot
@@ -193,7 +194,7 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
   - **Global:** every document analysis enters one shared `SemaphoreSlim` (default `ProcessorCount`).
 
   Jobs × per-job parallelism (10 × 4 = 40) can exceed the core count, and the global limit caps the CPU work actually running at once. .NET doesn't pin work to cores: everything runs on the shared thread pool.
-- The analysis is CPU-bound, so async helps only for I/O.
+- The analysis is CPU-bound, so `IDocumentAnalyzer.Analyze` is **synchronous** on purpose: there is nothing to wait for, and an async wrapper would only hide where the work runs. Everything that waits (blob reads and writes, the global semaphore, WebSocket sends) is async. A cancel takes effect between documents, which is fine at ≤100k characters (~1 ms per document).
 - Nothing blocks: no `.Result`, `.Wait()` or `Thread.Sleep`.
 - Tests use the real `Channel`s (in-memory and deterministic) and a slow fake `IDocumentAnalyzer` to measure peak concurrency. No wrapper classes are needed.
 
@@ -235,7 +236,7 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
 - **SHA-256:** over the UTF-8 bytes of the original content, exactly as submitted, as lowercase hex. It is independent of tokenizing: punctuation, casing, whitespace, line endings and Unicode encoding all affect the hash. Nothing is normalized.
 - **Metrics:** exactly the four the spec lists (word count, unique word count, top-5 words, SHA-256). No extra metadata. The analyzer is pure (no clock), so results are deterministic.
 
-### Job outcome semantics
+### When a job is Completed or Failed
 - **No per-document failures.** Validation guarantees every document is analysable (tokenizing, counting and hashing always produce an answer), so `DocumentResult` has no status and jobs have no succeeded/failed counts. An empty document has zero counts, no top words and the hash of `""`.
 - **Completed:** every document was analysed.
 - **Failed:** reserved for job-level problems where waiting won't help:
@@ -297,6 +298,7 @@ Production hardening goes in the README's "Known limitations" section instead of
 | Durable storage, a broker, multiple Processors | In-memory is allowed by the spec; each is "swap the implementation" |
 | Pending visibility (attempt count, last dispatch error on the job) | Logged today |
 | Letters outside the BMP dropped by the tokenizer | Rare scripts only |
+| Cancellation inside a single document's analysis | Needed only for very large documents; today a cancel applies between documents |
 
 ---
 
@@ -320,8 +322,8 @@ Production hardening goes in the README's "Known limitations" section instead of
    - fewer than 5 unique words
    - a large document
    - a hash checked with `shasum -a 256`.
-3. **Processor pipeline.**
-   - `ProcessJobRequestValidator`, `JobIntake`, `JobRegistry`
+3. **Processor pipeline** ✅
+   - `ProcessJobRequestValidator`, `ProcessingJobManager`, `JobRegistry`
    - `ProcessingWorker` (job slots, global `SemaphoreSlim`, `TryStart`, `ProcessAsync`)
    - Tests:
      - invalid → 400; known jobId → 200 even when busy; all slots busy → 503 with nothing registered

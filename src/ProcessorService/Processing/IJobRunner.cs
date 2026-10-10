@@ -2,12 +2,20 @@ using ProcessorService.Jobs;
 
 namespace ProcessorService.Processing;
 
-/// <summary>Starts jobs when capacity allows. An interface so <see cref="Intake.JobIntake"/> tests can simulate "busy" or "already known".</summary>
+/// <summary>
+/// Admission: the single owner of the decision whether a job starts. An interface so <see cref="Application.ProcessingJobManager"/>
+/// tests can substitute it.
+/// </summary>
 public interface IJobRunner
 {
     /// <summary>
-    /// Non-blocking admission: takes a free job slot (at most <see cref="Settings.ProcessingOptions.MaxConcurrentJobs"/>),
-    /// registers the job atomically and starts processing it in the background. The slot is released when the job ends.
+    /// Decides atomically, in this order:
+    /// <list type="number">
+    /// <item>jobId already known → <see cref="StartJobResult.AlreadyKnown"/> (checked first, so a retry of a running job is never told Busy);</item>
+    /// <item>all job slots taken (<see cref="Settings.ProcessingOptions.MaxConcurrentJobs"/>) → <see cref="StartJobResult.Busy"/>, nothing registered;</item>
+    /// <item>otherwise register, take a slot, start processing in the background → <see cref="StartJobResult.Started"/>.</item>
+    /// </list>
+    /// Never blocks. The slot is released when the job ends.
     /// </summary>
-    StartOutcome TryStart(ProcessingJob job);
+    StartJobResult TryStart(ProcessingJob job);
 }

@@ -7,7 +7,7 @@ namespace JobService.Application;
 public interface IJobManager
 {
     /// <summary>Validates, writes the documents blob, stores the job as Pending and enqueues it for dispatch.</summary>
-    Task<CreateJobOutcome> CreateAsync(CreateJobRequest? request, CancellationToken cancellationToken = default);
+    Task<CreateJobResult> CreateAsync(CreateJobRequest? request, CancellationToken cancellationToken = default);
 
     Task<PagedResult<JobSummary>> ListAsync(JobStatus? status, int page, int pageSize, CancellationToken cancellationToken = default);
 
@@ -20,5 +20,5 @@ public interface IJobManager
     Task<IReadOnlyList<DocumentResult>?> GetResultsAsync(string jobId, CancellationToken cancellationToken = default);
 
     /// <summary>Moves the job to Cancelled (first terminal state wins) and asks the Processor to stop, best effort.</summary>
-    Task<CancelJobOutcome> CancelAsync(string jobId, CancellationToken cancellationToken = default);
+    Task<CancelJobResult> CancelAsync(string jobId, CancellationToken cancellationToken = default);
 }

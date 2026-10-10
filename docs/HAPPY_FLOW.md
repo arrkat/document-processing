@@ -11,7 +11,7 @@ sequenceDiagram
     participant JS as Job Service<br/>(JobManager)
     participant Blob as Blob store<br/>(shared folder)
     participant Disp as JobDispatcher<br/>(Job Service, background)
-    participant Intake as JobIntake<br/>(Processor)
+    participant Mgr as ProcessingJobManager<br/>(Processor)
     participant Worker as ProcessingWorker<br/>(Processor)
     participant Events as ProcessingEventHandler<br/>(Job Service, WebSocket)
     participant Ingest as ResultsIngestor<br/>(Job Service, background)
@@ -30,13 +30,13 @@ sequenceDiagram
     rect rgba(255, 180, 80, 0.12)
     Note over Disp,Worker: Phase 2 — Dispatch (background)
     Disp->>Disp: take job at the head of the line, still Pending?
-    Disp->>Intake: POST /api/processing-jobs { jobId, documentsRef, documentCount }
-    Intake->>Intake: validate, not already known
-    Intake->>Worker: TryStart(job)
-    Worker->>Worker: take a free job slot, register job
+    Disp->>Mgr: POST /api/processing-jobs { jobId, documentsRef, documentCount }
+    Mgr->>Mgr: validate request
+    Mgr->>Worker: TryStart(job)
+    Worker->>Worker: not already known, free job slot → register job
     Note over Worker: Processor: Processing
-    Worker-->>Intake: Started
-    Intake-->>Disp: 202 Accepted
+    Worker-->>Mgr: Started
+    Mgr-->>Disp: 202 Accepted
     end
 
     rect rgba(120, 200, 120, 0.12)
