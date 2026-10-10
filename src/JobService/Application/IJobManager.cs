@@ -19,6 +19,10 @@ public interface IJobManager
     /// <returns><c>null</c> if the job does not exist or is not Completed.</returns>
     Task<IReadOnlyList<DocumentResult>?> GetResultsAsync(string jobId, CancellationToken cancellationToken = default);
 
-    /// <summary>Moves the job to Cancelled (first terminal state wins) and asks the Processor to stop, best effort.</summary>
+    /// <summary>
+    /// Pending → Cancelled locally (the Processor never had it). Processing → a cancel command to the Processor; the state does not
+    /// change until the Processor reports ProcessingCancelled, so the Job Service never shows Cancelled while work continues.
+    /// The Processor says it no longer knows the job → Failed(ProcessorTimeout) and AlreadyTerminal.
+    /// </summary>
     Task<CancelJobResult> CancelAsync(string jobId, CancellationToken cancellationToken = default);
 }

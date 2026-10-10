@@ -11,6 +11,6 @@ public sealed class ProcessorClient(HttpClient httpClient, ILogger<ProcessorClie
     public Task<ProcessingJobStatus?> GetStatusAsync(string jobId, CancellationToken cancellationToken = default) =>
         throw new NotImplementedException();
 
-    public Task<bool> CancelAsync(string jobId, CancellationToken cancellationToken = default) =>
+    public Task<ProcessorCancelResult> CancelAsync(string jobId, CancellationToken cancellationToken = default) =>
         throw new NotImplementedException();
 }

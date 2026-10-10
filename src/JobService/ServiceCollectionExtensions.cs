@@ -1,10 +1,10 @@
+using System.Threading.Channels;
 using JobService.Application;
 using JobService.Dispatch;
 using JobService.Events;
 using JobService.Monitoring;
 using JobService.Persistence;
 using JobService.Processing;
-using JobService.Results;
 using JobService.Settings;
 using JobService.Validation;
 using Microsoft.Extensions.Options;
@@ -17,7 +17,6 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<ProcessorClientOptions>(configuration.GetSection(ProcessorClientOptions.SectionName));
         services.Configure<DispatchOptions>(configuration.GetSection(DispatchOptions.SectionName));
-        services.Configure<ResultsIngestionOptions>(configuration.GetSection(ResultsIngestionOptions.SectionName));
         services.Configure<WatchdogOptions>(configuration.GetSection(WatchdogOptions.SectionName));
 
         services.AddSingleton(TimeProvider.System);
@@ -26,8 +25,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICreateJobRequestValidator, CreateJobRequestValidator>();
         services.AddSingleton<IJobManager, JobManager>();
 
-        services.AddSingleton<IJobDispatchQueue, ChannelJobDispatchQueue>();
-        services.AddSingleton<IResultsIngestionQueue, ChannelResultsIngestionQueue>();
+        // The dispatch line: JobManager writes, JobDispatcher is the single reader.
+        services.AddSingleton(sp => Channel.CreateBounded<DispatchRequest>(
+            new BoundedChannelOptions(sp.GetRequiredService<IOptions<DispatchOptions>>().Value.QueueCapacity) { SingleReader = true }));
+        services.AddSingleton(sp => sp.GetRequiredService<Channel<DispatchRequest>>().Writer);
+        services.AddSingleton(sp => sp.GetRequiredService<Channel<DispatchRequest>>().Reader);
 
         services.AddSingleton<IProcessingEventHandler, ProcessingEventHandler>();
         services.AddSingleton<ProcessorEventsSocketHandler>();
@@ -44,8 +46,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<JobDispatcher>();
         services.AddSingleton<IDispatchWakeUp>(sp => sp.GetRequiredService<JobDispatcher>());
         services.AddHostedService(sp => sp.GetRequiredService<JobDispatcher>());
-        services.AddSingleton<ResultsIngestor>();
-        services.AddHostedService(sp => sp.GetRequiredService<ResultsIngestor>());
         services.AddSingleton<JobWatchdog>();
         services.AddHostedService(sp => sp.GetRequiredService<JobWatchdog>());
 

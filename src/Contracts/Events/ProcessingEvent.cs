@@ -5,7 +5,7 @@ namespace Contracts.Events;
 /// <summary>
 /// Envelope for every Processor -> Job Service WebSocket message. Serialized with a <c>"type"</c> discriminator.
 /// <para>Events describe the Processor's work ("processing"), not the job's lifecycle: <see cref="ProcessingFinishedEvent"/>
-/// means "processing is done, results are written", after which the Job Service still verifies the results before the job becomes Completed.</para>
+/// means "processing is done, the results blob is fully written"; on receiving it the Job Service marks the job Completed.</para>
 /// <para><see cref="EventId"/> is unique per event (dedupe); <see cref="Sequence"/> increases per job (ordering / stale-event detection).</para>
 /// <para>On reconnect the Processor sends a snapshot event for each known job; receivers must be idempotent.</para>
 /// </summary>

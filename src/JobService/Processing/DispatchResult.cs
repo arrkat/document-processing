@@ -2,7 +2,7 @@ namespace JobService.Processing;
 
 public enum DispatchResult
 {
-    /// <summary>202 (new) or 200 (already known — idempotent resubmit).</summary>
+    /// <summary>202 (started) or 200 (already known — idempotent resubmit). Either way the Processor has the job.</summary>
     Accepted,
 
     /// <summary>503: all Processor job slots are busy. Retried without counting as an attempt.</summary>

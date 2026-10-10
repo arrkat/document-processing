@@ -65,23 +65,32 @@ public sealed class JobsController(IJobManager manager) : ControllerBase
         await manager.GetResultsAsync(jobId, ct) is { } results ? Ok(results) : NotFound();
 
     /// <summary>Cancel a job.</summary>
-    /// <remarks>A Pending job is cancelled immediately; a Processing job is stopped on the Processor. The first final state wins.</remarks>
-    /// <response code="202">Cancellation accepted.</response>
+    /// <remarks>
+    /// A Pending job is cancelled immediately. For a Processing job a cancel command is sent to the Processor and the job stays
+    /// Processing until the Processor confirms; it may still finish as Completed if processing ended first.
+    /// </remarks>
+    /// <response code="202">Cancelled (Pending job) or cancellation requested (Processing job).</response>
     /// <response code="404">No job with this id.</response>
     /// <response code="409">The job already finished (Completed, Failed or Cancelled).</response>
+    /// <response code="503">The job is processing and the Processor could not be reached; retry.</response>
     [HttpPost("{jobId}/cancel")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> Cancel(string jobId, CancellationToken ct) =>
         await manager.CancelAsync(jobId, ct) switch
         {
-            CancelJobResult.Accepted => AcceptedAtAction(nameof(Get), new { jobId }, null),
+            CancelJobResult.Cancelled or CancelJobResult.CancellationRequested => AcceptedAtAction(nameof(Get), new { jobId }, null),
             CancelJobResult.NotFound => NotFound(),
             CancelJobResult.AlreadyTerminal => Problem(
                 title: "Job already finished",
                 detail: $"Job '{jobId}' is already in a final state and cannot be cancelled.",
                 statusCode: StatusCodes.Status409Conflict),
+            CancelJobResult.ProcessorUnavailable => Problem(
+                title: "Processor unavailable",
+                detail: $"Job '{jobId}' is processing and the cancel command could not be delivered. Retry later.",
+                statusCode: StatusCodes.Status503ServiceUnavailable),
             var result => throw new ArgumentOutOfRangeException(nameof(result), result, "Unknown cancel result.")
         };
 }

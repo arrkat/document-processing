@@ -52,7 +52,8 @@ Client ◄─ 202 Accepted + Location + JobSummary (Pending)
 JobDispatcher, one job at a time in FIFO order:
    still Pending? no → drop it
    ─► POST /api/processing-jobs { jobId, documentsRef, documentCount }
-   202 / 200 (already known) → done
+   202 / 200 (already known) → the Processor has the job → Pending ➜ Processing
+                     (if the job was cancelled meanwhile → send the Processor a compensating cancel)
    503 Busy        → same job stays at the head; retry after BusyRetryDelay or when a terminal event frees a slot
    unreachable     → backoff (bounded, ~1 min) → Failed(ProcessorUnavailable)
    400 Rejected    → Failed(ProcessorRejected)
@@ -67,9 +68,9 @@ ProcessingWorker.ProcessAsync:
    → throttled ProcessingProgress → write blob jobs/{id}/results.json → ProcessingFinished { resultsRef } → free the slot
 
 ── Events back (WebSocket, Processor is the client) ────────────────────────────
-JobEventHandler: JobStateTransitions.Apply inside an atomic state update
-   ProcessingFinished → job stays Processing; enqueue results ingestion
-ResultsIngestor: verify results blob → ProcessingState.Complete → Completed (results stay in the blob)
+ProcessingEventHandler: JobStateTransitions.Apply inside an atomic state update (every event is logged)
+   ProcessingFinished → Completed (results.json is already fully written; it stays the results' only home)
+   any terminal event → wake the dispatcher (a slot is free)
 ```
 
 ### Claim-check: messages carry metadata and references only
@@ -143,7 +144,7 @@ In-memory storage is allowed by the spec. Swapping `InMemoryJobRepository` for S
 Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is stopped, not deleted.
 
 ### WebSocket events
-- **Vocabulary:** events describe the Processor's *processing*, not the job's lifecycle. The Processor's terminal success is **Finished** (`ProcessingStatus.Finished`, `ProcessingFinished` event): its work is done and `results.json` is written. Only the Job Service uses **Completed**, once it has verified the results.
+- **Vocabulary:** events describe the Processor's *processing*, not the job's lifecycle. The Processor's terminal success is **Finished** (`ProcessingStatus.Finished`, `ProcessingFinished` event): its work is done and `results.json` is written. Only the Job Service uses **Completed**, which it sets on receiving that report.
 - **Envelope:** `{ type, eventId, jobId, sequence, timestamp, ... }`, serialized as polymorphic JSON with a `type` discriminator.
   - `eventId` is used to recognise duplicates.
   - `sequence` increases per job and is used to detect duplicate or stale events.
@@ -158,7 +159,6 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
   - `ProcessorRejected`
   - `ProcessorTimeout`
   - `InputUnavailable`
-  - `ResultsUnavailable`
   - `Unexpected`
 
 ### Job Service domain model
@@ -174,10 +174,15 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
   - Nullables remain only where they describe reality. For example, `FailedState.StartedAt` is null when the job failed before it started.
 - **`JobStateTransitions.Apply(state, event)`** is a **pure** function. It maps untrusted events (duplicate, late, out of order) onto legal transitions and returns either a new state or an ignore reason (`Duplicate` / `InvalidTransition`). It runs inside `IJobRepository.TryUpdateStateAsync`, a compare-and-swap that may retry, so all side effects happen in the caller afterwards.
 - **`Job(Metadata, State)`** is the read model. `ToSummary()` flattens it into the flat public DTO.
-- **Results ingestion is internal Job Service work, not a lifecycle state.**
-  - `ProcessingFinished` leaves the job in Processing and only bumps its sequence.
-  - The ingestor verifies the results blob (readable, one result per document) and then calls `Complete`.
-  - Ingestion is idempotent, because only one `Complete` can win.
+- **Who decides what.** The Job Service decides only what happens *before* the handover: waiting, cancel while waiting, unreachable, rejected. After the Processor accepts a job (its 202), the Job Service **records what the Processor reports** (the 202, the events, or its status when the watchdog asks). It never decides anything about processing itself, so its processing-phase state is a read model fed by the Processor, not a second source of truth.
+  ```
+  Pending ──(dispatcher gets 202, or any processing event)──► Processing ──(ProcessingFinished)──► Completed
+     │                                                           ├──(ProcessingFailed / watchdog: Processor lost it)──► Failed
+     │                                                           └──(ProcessingCancelled, after a cancel command)──────► Cancelled
+     ├──(cancel while waiting)──► Cancelled
+     └──(unreachable for the whole window / rejected)──► Failed
+  ```
+- **No results ingestion step.** The Processor writes `results.json` atomically *before* sending `ProcessingFinished`, so the blob is complete when the event arrives. The job becomes Completed immediately, and `GET` reads the blob on demand.
 
 ### Validation
 - **Rules for `POST /api/jobs`:**
@@ -213,15 +218,18 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
   - While disconnected, the client keeps reading and **discards** events, so the channel never fills. It reconnects with backoff and jitter.
   - On every (re)connect it sends a **snapshot**: one event per job, built from the registry's current status. The registry is updated before events are published, so the snapshot supersedes anything discarded.
   - Receivers are idempotent.
-- **Lost `ProcessingFinished` or a Processor crash.** The watchdog checks Processing jobs that have had no activity for too long:
-  - The results blob exists → ingest it.
-  - The Processor reports Failed or Cancelled → apply that.
+- **Handover.** The Processor's 202 means it registered the job and started it, so the dispatcher moves the job to Processing right away. A crash before `ProcessingStarted` can't leave the job stuck in Pending; the watchdog sees it as a stale Processing job.
+- **Lost events or a Processor crash.** The watchdog checks Processing jobs that have had no activity for too long:
+  - The results blob exists → Completed.
+  - The Processor reports Finished → Completed; Failed or Cancelled → apply that; still Processing → leave it.
   - The Processor doesn't know the job (it restarted) → `Failed(ProcessorTimeout)`.
-  - The Processor is unreachable → try again on the next scan.
-- **Cancellation.**
-  - A Pending job is cancelled locally: it's dropped from the dispatch line.
-  - A Processing job's cancel is forwarded to the Processor, which fires that job's token and emits `ProcessingCancelled`.
-  - The first terminal state wins.
+  - The Processor is unreachable → the job stays Processing (the last known truth), a warning is logged, and it's checked again on the next scan.
+  - The watchdog never guesses. After the handover only the Processor knows the truth, and "unreachable" may be a network split with the Processor still working. Clients see the silence through `JobSummary.LastUpdatedAt` (e.g. "Processing, last update 8 minutes ago") and can cancel.
+- **Cancellation never lies.** The state shows Cancelled only once nothing is running:
+  - Pending → Cancelled locally (the Processor never had it) → 202.
+  - Processing → a **command** to the Processor; the state stays Processing until `ProcessingCancelled` arrives. Processor 202 → 202 "cancellation requested" · 409 → 409 · 404 (it lost the job) → `Failed(ProcessorTimeout)` + 409 · unreachable → 503, retry.
+  - **Cancel racing an in-flight dispatch:** the job is Cancelled locally while the dispatcher's POST is on its way. When the 202 arrives, "Pending → Processing" fails because the job is Cancelled, so the dispatcher sends the Processor a compensating cancel.
+  - A 202 for a Processing job means "requested": if processing finished first, the job ends Completed.
 - **Shutdown.** The Processor cancels in-flight jobs without sending a terminal event. The watchdog then detects them as `ProcessorTimeout`.
 
 ### Text analysis rules
@@ -262,6 +270,11 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
 | Shared database between the services | Couples the schemas, makes the WebSocket pointless, and puts two writers on the same status rows. |
 | Message broker | The spec lists it as not required and requires REST + WebSocket. Mentioned as the production choice. |
 | `AwaitingResults` job state | Results ingestion is internal Job Service work, not part of the lifecycle. |
+| Results ingestion / verification step | The Processor writes results atomically before reporting Finished, so re-verifying added a background service, a queue and an error code for nothing. |
+| Marking a Processing job Cancelled immediately | It would show Cancelled while the Processor is still working. Cancel is a command; the state follows the Processor's confirmation. |
+| Job Service forwarding status reads to the Processor | It would make the WebSocket pointless, fail reads while the Processor is down, and lose history on every Processor restart. The Job Service owns the pre-handover phase and records the rest. |
+| Watchdog giving up on a job whose Processor is unreachable | "Unreachable" may be a network split with the Processor still working, so `Failed` would be a guess shown as fact. A bounded wait is right *before* the handover (dispatcher), not after it. The silence is made visible (`LastUpdatedAt`) instead. |
+| Waiting for `ProcessingStarted` to leave Pending | A crash between the 202 and the event would leave the job Pending forever. The 202 itself means "started". |
 | Per-document status / `CompletedWithErrors` | Validated content can always be analysed, so a per-document failure cannot happen. An unexpected exception is a bug and becomes job-level `Failed(Unexpected)`. |
 | Mutable `JobState` class with a lock | Live-list enumeration bugs and unguarded transitions. Replaced by an immutable compare-and-swap design. |
 | `/api/process`, `DELETE` for cancel | REST paths are nouns; a cancelled job is not deleted. |
@@ -283,7 +296,7 @@ Production hardening goes in the README's "Known limitations" section instead of
 
 | Item | Rationale |
 |---|---|
-| `POST /api/jobs/{id}/retry` with retryable error codes (`ProcessorUnavailable`, `ProcessorTimeout`, `ResultsUnavailable`) and `Failed → Pending` | Manual replay instead of endless retries, like a dead-letter queue |
+| `POST /api/jobs/{id}/retry` with retryable error codes (`ProcessorUnavailable`, `ProcessorTimeout`) and `Failed → Pending` | Manual replay instead of endless retries, like a dead-letter queue |
 | Processor's "already known" 200 returning the job's current status | Lets a retried dispatch learn the job already completed. Only needed with the retry endpoint |
 | Automatic requeue after a Processor restart, with a poison-job cap | Today the watchdog fails the job; retry would be the recovery path |
 | Run id per Processor start | After a restart, the same job's sequence numbers restart, so progress can appear to jump backwards. Harmless |
@@ -298,6 +311,10 @@ Production hardening goes in the README's "Known limitations" section instead of
 | Durable storage, a broker, multiple Processors | In-memory is allowed by the spec; each is "swap the implementation" |
 | Pending visibility (attempt count, last dispatch error on the job) | Logged today |
 | Letters outside the BMP dropped by the tokenizer | Rare scripts only |
+| Processor unreachable after the handover | Jobs stay Processing (the last known truth) until it returns; `LastUpdatedAt` shows how stale the status is, and the watchdog logs a warning. The documented retry endpoint would be the operator's tool |
+| Progress is eventually consistent | Progress events are throttled and droppable, so GET may lag slightly; final states are never dropped |
+| A Job Service restart loses all jobs | In-memory storage (allowed by the spec); the Processor's later events for unknown jobs are logged and ignored. SQLite is the documented swap |
+| An unreadable results blob | GET returns an error for that request. Only possible through outside interference, since the Processor writes atomically before reporting |
 | Cancellation inside a single document's analysis | Needed only for very large documents; today a cancel applies between documents |
 
 ---
@@ -337,8 +354,8 @@ Production hardening goes in the README's "Known limitations" section instead of
    - The state transition methods, `JobStateTransitions.Apply` (table-driven tests) and `Job.ToSummary`
    - `InMemoryJobRepository` (compare-and-swap)
    - `CreateJobRequestValidator`, `JobManager`
-   - The dispatch and ingestion queues (plain channels, wrappers removed), `JobDispatcher` (FIFO; Busy is not an attempt; bounded unreachable window; wake-up on terminal events), `ProcessorClient` (tested with a fake `HttpMessageHandler`)
-   - `ResultsIngestor`, `JobWatchdog`
+   - The dispatch line (a plain `Channel<DispatchRequest>`), `JobDispatcher` (FIFO; Busy is not an attempt; bounded unreachable window; Processing on 202; compensating cancel; wake-up on terminal events), `ProcessorClient` (tested with a fake `HttpMessageHandler`)
+   - `JobWatchdog` (blob exists / Processor says Finished → Completed; Processor lost the job → Failed(ProcessorTimeout); unreachable → unchanged + warning)
 5. **WebSocket link.**
    - Job Service side: `ProcessorEventsSocketHandler` and `JobEventHandler`.
    - Processor side: `JobEventsSocketClient` with reconnect and snapshot.

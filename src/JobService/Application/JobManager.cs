@@ -1,6 +1,7 @@
 using BlobStorage;
 using Contracts.Documents;
 using Contracts.Jobs;
+using System.Threading.Channels;
 using JobService.Dispatch;
 using JobService.Persistence;
 using JobService.Processing;
@@ -12,7 +13,7 @@ public sealed class JobManager(
     ICreateJobRequestValidator validator,
     IJobRepository repository,
     IBlobStore blobStore,
-    IJobDispatchQueue dispatchQueue,
+    ChannelWriter<DispatchRequest> dispatchQueue,
     IProcessorClient processorClient,
     TimeProvider timeProvider,
     ILogger<JobManager> logger) : IJobManager

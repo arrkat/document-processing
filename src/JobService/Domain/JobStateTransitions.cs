@@ -20,14 +20,16 @@ public sealed record TransitionResult(JobState? NewState, IgnoreReason? Ignored)
 
 /// <summary>
 /// Maps untrusted Processor events (possibly duplicated, late or out of order) onto the legal transitions of <see cref="JobState"/>.
-/// <para>
+/// The Job Service records what the Processor reports; it decides nothing about processing itself.
+/// <list type="bullet">
+/// <item>Sequence ≤ the last applied one → <see cref="IgnoreReason.Duplicate"/>.</item>
+/// <item>Any processing event on a Pending job first starts it (implicit start): the Processor clearly has the job, even if
+/// ProcessingStarted or the dispatcher's 202 were lost.</item>
+/// <item>Started → Processing · Progress → count updated · Finished → Completed · Failed → Failed · Cancelled → Cancelled.</item>
+/// <item>Any event on a terminal job → <see cref="IgnoreReason.InvalidTransition"/>.</item>
+/// </list>
 /// PURE: no I/O, no clock, no logging. It runs inside the repository's atomic update callback, which may execute more than once,
-/// so side effects (enqueue results ingestion, logging) belong to the caller, after the update.
-/// </para>
-/// <para>
-/// ProcessingFinished does not complete the job: it returns the Processing state with the new sequence/activity; the caller then enqueues
-/// results ingestion, and only the ingestor calls <see cref="ProcessingState.Complete"/>.
-/// </para>
+/// so side effects (logging, waking the dispatcher) belong to the caller, after the update.
 /// </summary>
 public static class JobStateTransitions
 {

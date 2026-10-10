@@ -18,9 +18,6 @@ public enum ErrorCode
     /// <summary>The Processor could not read the documents blob.</summary>
     InputUnavailable,
 
-    /// <summary>The Job Service could not read the results blob after all retries.</summary>
-    ResultsUnavailable,
-
     /// <summary>Unexpected error in the processing pipeline (a bug).</summary>
     Unexpected
 }
