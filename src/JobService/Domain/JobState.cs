@@ -46,7 +46,7 @@ public sealed record ProcessingState(
     public ProcessingState Progress(int processedDocuments, DateTimeOffset at, long sequence) => throw new NotImplementedException();
 
     /// <summary>Called by the results ingestor once the results are stored — not directly by the JobCompleted event.</summary>
-    public CompletedState Complete(int succeededDocuments, int failedDocuments, DateTimeOffset at) => throw new NotImplementedException();
+    public CompletedState Complete(DateTimeOffset at) => throw new NotImplementedException();
 
     public FailedState Fail(ErrorCode errorCode, string? errorMessage, DateTimeOffset at) => throw new NotImplementedException();
 
@@ -57,9 +57,7 @@ public sealed record CompletedState(
     DateTimeOffset LastActivityAt,
     long LastEventSequence,
     DateTimeOffset StartedAt,
-    DateTimeOffset CompletedAt,
-    int SucceededDocuments,
-    int FailedDocuments)
+    DateTimeOffset CompletedAt)
     : JobState(LastActivityAt, LastEventSequence)
 {
     public override JobStatus Status => JobStatus.Completed;

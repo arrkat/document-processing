@@ -8,6 +8,5 @@ namespace ProcessorService.Analysis;
 /// </summary>
 public interface IDocumentAnalyzer
 {
-    /// <summary>Never throws: an exception during analysis becomes a <see cref="DocumentStatus.Failed"/> result with zero metrics.</summary>
     DocumentResult Analyze(DocumentInput document);
 }

@@ -11,7 +11,7 @@ public interface IJobEventFactory
 
     JobProgressEvent Progress(string jobId, int processedDocuments, int totalDocuments);
 
-    JobCompletedEvent Completed(string jobId, string resultsRef, int succeededDocuments, int failedDocuments);
+    JobCompletedEvent Completed(string jobId, string resultsRef);
 
     JobFailedEvent Failed(string jobId, ErrorCode errorCode, string? errorMessage);
 

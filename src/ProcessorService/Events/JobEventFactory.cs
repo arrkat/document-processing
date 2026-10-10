@@ -11,7 +11,7 @@ public sealed class JobEventFactory(IJobRegistry registry, TimeProvider timeProv
 
     public JobProgressEvent Progress(string jobId, int processedDocuments, int totalDocuments) => throw new NotImplementedException();
 
-    public JobCompletedEvent Completed(string jobId, string resultsRef, int succeededDocuments, int failedDocuments) =>
+    public JobCompletedEvent Completed(string jobId, string resultsRef) =>
         throw new NotImplementedException();
 
     public JobFailedEvent Failed(string jobId, ErrorCode errorCode, string? errorMessage) => throw new NotImplementedException();

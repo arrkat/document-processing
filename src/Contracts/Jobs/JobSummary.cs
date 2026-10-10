@@ -5,8 +5,6 @@ public sealed record JobSummary(
     JobStatus Status,
     int TotalDocuments,
     int ProcessedDocuments,
-    int SucceededDocuments,
-    int FailedDocuments,
     DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt,

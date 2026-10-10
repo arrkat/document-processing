@@ -102,7 +102,7 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
 - **Types:**
   - `JobStarted(totalDocuments)`
   - `JobProgress(processed, total)`, throttled
-  - `JobCompleted(resultsRef, succeeded, failed)`
+  - `JobCompleted(resultsRef)`
   - `JobFailed(errorCode, message)`
   - `JobCancelled(processed)`
 - **`ErrorCode`** values:
@@ -168,14 +168,20 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
 - **Shutdown.** The Processor stops reading new jobs, and in-flight jobs end with `Failed(ProcessorShuttingDown)`.
 
 ### Text analysis rules
-- **Words:** case-insensitive runs of Unicode letters and digits, with inner apostrophes allowed.
+- **Words:**
+  1. Split the text on whitespace only (spaces, tabs, newlines).
+  2. Remove every character that is not a Unicode letter or digit. Punctuation never splits a word: `don't` → `dont`, `e-mail` → `email`.
+  3. Lower-case the result (invariant culture).
+  4. Keep it only if it contains at least one letter. Pure numbers are not words (`3.14` and `66` are dropped), while mixed words stay whole (`mp3`, `covid-19` → `covid19`).
+  
+  Hebrew letters count as letters. Vowel marks (niqqud) are stripped, so the word stays intact.
 - **Top-5:** by count descending, then by word ascending (ordinal), so ties are deterministic.
-- **SHA-256:** over the UTF-8 bytes of the original content, as lowercase hex.
+- **SHA-256:** over the UTF-8 bytes of the original content, exactly as submitted, as lowercase hex. It is independent of tokenizing: punctuation, casing, whitespace, line endings and Unicode encoding all affect the hash. Nothing is normalized.
 - **Metrics:** exactly the four the spec lists (word count, unique word count, top-5 words, SHA-256). No extra metadata. The analyzer is pure (no clock), so results are deterministic.
-- **Errors:** an exception on one document produces a `Failed` `DocumentResult`, and the job continues.
 
 ### Job outcome semantics
-- **Completed:** every document reached a terminal per-document status. The succeeded/failed counts show partial problems; there is no extra "CompletedWithErrors" status.
+- **No per-document failures.** Validation guarantees every document is analysable (tokenizing, counting and hashing always produce an answer), so `DocumentResult` has no status and jobs have no succeeded/failed counts. An empty document has zero counts, no top words and the hash of `""`.
+- **Completed:** every document was analysed.
 - **Failed:** reserved for job-level problems (unreachable, timeout, input or results unavailable, unexpected error).
 
 ### Observability
@@ -194,7 +200,7 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
 | Shared database between the services | Couples the schemas, makes the WebSocket pointless, and puts two writers on the same status rows. |
 | Message broker | The spec lists it as not required and requires REST + WebSocket. Mentioned as the production choice. |
 | `AwaitingResults` job state | Results ingestion is internal Job Service work, not part of the lifecycle. |
-| `CompletedWithErrors` status | One more state for clients; the counts already carry this information. |
+| Per-document status / `CompletedWithErrors` | Validated content can always be analysed, so a per-document failure cannot happen. An unexpected exception is a bug and becomes job-level `Failed(Unexpected)`. |
 | Mutable `JobState` class with a lock | Live-list enumeration bugs and unguarded transitions. Replaced by an immutable compare-and-swap design. |
 | `/api/process`, `DELETE` for cancel | REST paths are nouns; a cancelled job is not deleted. |
 | Idempotency-Key on job creation | Too much for the time-box. Listed as a README limitation. |

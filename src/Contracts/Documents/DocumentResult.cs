@@ -1,11 +1,12 @@
 namespace Contracts.Documents;
 
-/// <summary>Analysis output for one document. For <see cref="DocumentStatus.Failed"/> the metrics are zero and <see cref="Error"/> is set.</summary>
+/// <summary>
+/// Analysis output for one document. Every validated document can be analysed, so there is no per-document failure:
+/// an empty document simply has zero counts, no top words and the hash of the empty string.
+/// </summary>
 public sealed record DocumentResult(
     string DocumentId,
-    DocumentStatus Status,
     int WordCount,
     int UniqueWordCount,
     IReadOnlyList<WordFrequency> TopWords,
-    string Sha256,
-    string? Error = null);
+    string Sha256);

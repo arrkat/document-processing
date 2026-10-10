@@ -28,9 +28,9 @@ public sealed record JobProgressEvent(Guid EventId, string JobId, long Sequence,
     int ProcessedDocuments, int TotalDocuments)
     : JobEvent(EventId, JobId, Sequence, Timestamp);
 
-/// <summary>All documents reached a terminal state and the results blob at <see cref="ResultsRef"/> is fully written.</summary>
+/// <summary>All documents were analysed and the results blob at <see cref="ResultsRef"/> is fully written.</summary>
 public sealed record JobCompletedEvent(Guid EventId, string JobId, long Sequence, DateTimeOffset Timestamp,
-    string ResultsRef, int SucceededDocuments, int FailedDocuments)
+    string ResultsRef)
     : JobEvent(EventId, JobId, Sequence, Timestamp);
 
 public sealed record JobFailedEvent(Guid EventId, string JobId, long Sequence, DateTimeOffset Timestamp,
