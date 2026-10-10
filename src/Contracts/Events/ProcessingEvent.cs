@@ -11,7 +11,7 @@ namespace Contracts.Events;
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(ProcessingStartedEvent), "ProcessingStarted")]
-[JsonDerivedType(typeof(ProcessingProgressEvent), "ProcessingProgress")]
+[JsonDerivedType(typeof(ProcessingProgressUpdatedEvent), "ProcessingProgressUpdated")]
 [JsonDerivedType(typeof(ProcessingFinishedEvent), "ProcessingFinished")]
 [JsonDerivedType(typeof(ProcessingFailedEvent), "ProcessingFailed")]
 [JsonDerivedType(typeof(ProcessingCancelledEvent), "ProcessingCancelled")]
@@ -26,7 +26,7 @@ public sealed record ProcessingStartedEvent(Guid EventId, string JobId, long Seq
     : ProcessingEvent(EventId, JobId, Sequence, Timestamp);
 
 /// <summary>Throttled progress. Counts only — results travel through the results blob.</summary>
-public sealed record ProcessingProgressEvent(Guid EventId, string JobId, long Sequence, DateTimeOffset Timestamp,
+public sealed record ProcessingProgressUpdatedEvent(Guid EventId, string JobId, long Sequence, DateTimeOffset Timestamp,
     int ProcessedDocuments, int TotalDocuments)
     : ProcessingEvent(EventId, JobId, Sequence, Timestamp);
 

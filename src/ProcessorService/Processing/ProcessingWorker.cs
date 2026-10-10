@@ -31,9 +31,11 @@ public sealed class ProcessingWorker(
     ChannelWriter<ProcessingEvent> events,
     TimeProvider timeProvider,
     IOptions<ProcessingOptions> options,
-    ILogger<ProcessingWorker> logger) : IHostedService, IJobRunner, IDisposable
+    ILogger<ProcessingWorker> logger) : IHostedService, IJobRunner
 {
     private readonly ProcessingOptions _options = options.Value;
+    // Deliberately not disposed: neither owns anything that needs it (no timer, no wait handle), and the host may call StopAsync
+    // more than once or after disposal (e.g. app.Run and a test host both shutting down), so StopAsync must always be safe.
     private readonly SemaphoreSlim _documentSlots = new(ResolveMaxConcurrentDocuments(options.Value));
     private readonly CancellationTokenSource _stopping = new();
     private readonly ConcurrentDictionary<string, Task> _running = new(StringComparer.Ordinal);
@@ -70,7 +72,7 @@ public sealed class ProcessingWorker(
     /// <summary>
     /// Runs one registered job end to end (public so tests can await it directly, without job slots):
     /// ProcessingStarted → read documents blob (missing, unreadable or wrong count → ProcessingFailed(InputUnavailable))
-    /// → analyse documents under both limits → throttled ProcessingProgress → write results blob → mark finished → ProcessingFinished(resultsRef).
+    /// → analyse documents under both limits → throttled ProcessingProgressUpdated → write results blob → mark finished → ProcessingFinished(resultsRef).
     /// User cancel → ProcessingCancelled. Unexpected exception → ProcessingFailed(Unexpected).
     /// Host shutdown sends no terminal event: the Job Service watchdog detects the abandoned job.
     /// </summary>
@@ -113,7 +115,7 @@ public sealed class ProcessingWorker(
 
                     lastPublished = current;
                     lastPublishedAt = timeProvider.GetTimestamp();
-                    events.TryWrite(new ProcessingProgressEvent(Guid.NewGuid(), job.JobId, registry.NextSequence(job.JobId),
+                    events.TryWrite(new ProcessingProgressUpdatedEvent(Guid.NewGuid(), job.JobId, registry.NextSequence(job.JobId),
                         timeProvider.GetUtcNow(), current, documents.Count));
                 }
             }
@@ -182,12 +184,6 @@ public sealed class ProcessingWorker(
         {
             logger.LogWarning("Shutdown timed out with {Count} jobs still stopping", _running.Count);
         }
-    }
-
-    public void Dispose()
-    {
-        _stopping.Dispose();
-        _documentSlots.Dispose();
     }
 
     private async Task RunAndReleaseSlotAsync(ProcessingJob job)

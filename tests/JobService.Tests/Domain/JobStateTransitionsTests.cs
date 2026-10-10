@@ -11,7 +11,7 @@ public class JobStateTransitionsTests
     private static readonly DateTimeOffset ReceivedAt = T0.AddMinutes(1);
 
     private static ProcessingEvent Started(long seq) => new ProcessingStartedEvent(Guid.NewGuid(), "job", seq, T0, 3);
-    private static ProcessingEvent Progress(long seq, int processed) => new ProcessingProgressEvent(Guid.NewGuid(), "job", seq, T0, processed, 3);
+    private static ProcessingEvent Progress(long seq, int processed) => new ProcessingProgressUpdatedEvent(Guid.NewGuid(), "job", seq, T0, processed, 3);
     private static ProcessingEvent Finished(long seq) => new ProcessingFinishedEvent(Guid.NewGuid(), "job", seq, T0, "jobs/job/results.json");
     private static ProcessingEvent FailedEvent(long seq) => new ProcessingFailedEvent(Guid.NewGuid(), "job", seq, T0, ErrorCode.InputUnavailable, "missing");
     private static ProcessingEvent CancelledEvent(long seq, int processed) => new ProcessingCancelledEvent(Guid.NewGuid(), "job", seq, T0, processed);

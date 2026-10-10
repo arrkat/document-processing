@@ -41,7 +41,7 @@ public class ProcessingWorkerProcessTests
 
         await harness.Worker.ProcessAsync(job, CancellationToken.None);
 
-        var progress = harness.DrainEvents().OfType<ProcessingProgressEvent>().Select(p => p.ProcessedDocuments);
+        var progress = harness.DrainEvents().OfType<ProcessingProgressUpdatedEvent>().Select(p => p.ProcessedDocuments);
         Assert.Equal([3, 6, 9], progress);
     }
 

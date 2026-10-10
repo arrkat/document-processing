@@ -21,8 +21,8 @@ The graders care about structure, failure handling, concurrency, tests and docum
 | 2b | Design refinement: one waiting line (Option C), Finished vs Completed, results only in the blob, size assumptions, controllers + Swagger | ~1h | ✅ Done |
 | 3 | Processor pipeline | 1.5h | ✅ Done |
 | 4 | Job Service core | 1.5h | ✅ Done |
-| 5 | WebSocket link | 1.5h | ⏭ Next |
-| 6 | End-to-end + load | 1h | ⬜ |
+| 5 | WebSocket link | 1.5h | ✅ Done |
+| 6 | End-to-end + load | 1h | ⏭ Next |
 | 7 | Docs + deliverables | 1h | ⬜ |
 | 8 | Bonus: Audit Service, only if time remains | — | ⬜ |
 
@@ -65,7 +65,7 @@ ProcessingJobManager: validate (400) → IJobRunner.TryStart (admission, one loc
    register → start in background → 202
 ProcessingWorker.ProcessAsync:
    ProcessingStarted → read documents blob → analyse docs (per-job parallelism + global SemaphoreSlim)
-   → throttled ProcessingProgress → write blob jobs/{id}/results.json → ProcessingFinished { resultsRef } → free the slot
+   → throttled ProcessingProgressUpdated → write blob jobs/{id}/results.json → ProcessingFinished { resultsRef } → free the slot
 
 ── Events back (WebSocket, Processor is the client) ────────────────────────────
 ProcessingEventHandler: JobStateTransitions.Apply inside an atomic state update (every event is logged)
@@ -150,7 +150,7 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
   - `sequence` increases per job and is used to detect duplicate or stale events.
 - **Types:**
   - `ProcessingStarted(totalDocuments)`
-  - `ProcessingProgress(processed, total)`, throttled
+  - `ProcessingProgressUpdated(processed, total)`, throttled
   - `ProcessingFinished(resultsRef)`
   - `ProcessingFailed(errorCode, message)`
   - `ProcessingCancelled(processed)`
@@ -356,8 +356,8 @@ Production hardening goes in the README's "Known limitations" section instead of
    - `CreateJobRequestValidator`, `JobManager`
    - The dispatch line (a plain `Channel<DispatchRequest>`), `JobDispatcher` (FIFO; Busy is not an attempt; bounded unreachable window; Processing on 202; compensating cancel; wake-up on terminal events), `ProcessorClient` (tested with a fake `HttpMessageHandler`)
    - `JobWatchdog` (blob exists / Processor says Finished → Completed; Processor lost the job → Failed(ProcessorTimeout); unreachable → unchanged + warning)
-5. **WebSocket link.**
-   - Job Service side: `ProcessorEventsSocketHandler` and `JobEventHandler`.
+5. **WebSocket link** ✅
+   - Job Service side: `ProcessorEventsReceiver` and `JobEventHandler`.
    - Processor side: `JobEventsSocketClient` with reconnect and snapshot.
    - Tests: duplicate events, out-of-order events, reconnect.
 6. **End-to-end + load.**

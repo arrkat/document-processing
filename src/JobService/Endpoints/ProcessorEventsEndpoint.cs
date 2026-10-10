@@ -8,7 +8,7 @@ public static class ProcessorEventsEndpoint
 
     public static IEndpointRouteBuilder MapProcessorEventsEndpoint(this IEndpointRouteBuilder app)
     {
-        app.Map(Path, async (HttpContext context, ProcessorEventsSocketHandler handler) =>
+        app.Map(Path, async (HttpContext context, ProcessorEventsReceiver receiver) =>
         {
             if (!context.WebSockets.IsWebSocketRequest)
             {
@@ -17,7 +17,7 @@ public static class ProcessorEventsEndpoint
             }
 
             using var socket = await context.WebSockets.AcceptWebSocketAsync();
-            await handler.HandleAsync(socket, context.RequestAborted);
+            await receiver.HandleAsync(socket, context.RequestAborted);
         }).ExcludeFromDescription();
 
         return app;

@@ -48,7 +48,7 @@ sequenceDiagram
     loop each document (≤ 4 per job, ≤ cores globally)
         Worker->>Worker: Analyze → result kept in memory (array slot per document)
     end
-    Worker->>Events: WS ProcessingProgress (seq 2…n, throttled)
+    Worker->>Events: WS ProcessingProgressUpdated (seq 2…n, throttled)
     Events->>Events: Apply → progress updated
     Worker->>Blob: write jobs/{id}/results.json (once, atomic)
     Worker->>Worker: mark Finished, free the job slot
@@ -75,7 +75,7 @@ sequenceDiagram
 | right after POST (step 6) | — (doesn't know the job yet) | `Pending`, 0 / N processed |
 | Processor accepted the job (step 11) | `Processing` | `Pending` (202 not received yet) |
 | dispatcher got the 202 (steps 13–14) | `Processing` | `Processing`, 0 / N |
-| `ProcessingProgress` applied (steps 19–20) | `Processing` | `Processing`, k / N |
+| `ProcessingProgressUpdated` applied (steps 19–20) | `Processing` | `Processing`, k / N |
 | Processor done (steps 21–23) | `Finished` | `Processing` (event on its way) |
 | `ProcessingFinished` applied (step 24) | `Finished` | **`Completed`**, N / N, results readable |
 

@@ -34,6 +34,7 @@ public sealed class JobDispatcher(
     private readonly DispatchOptions _options = options.Value;
 
     // At most one pending wake-up: several terminal events while nothing is waiting collapse into a single early retry.
+    // Deliberately not disposed: its wait handle is never used, and an event arriving during shutdown may still call SlotFreed().
     private readonly SemaphoreSlim _slotFreed = new(initialCount: 0, maxCount: 1);
 
     /// <summary>Dispatches one job, including retries. Public so it can be tested without the hosting loop.</summary>
@@ -101,12 +102,6 @@ public sealed class JobDispatcher(
         {
             // A wake-up is already pending.
         }
-    }
-
-    public override void Dispose()
-    {
-        _slotFreed.Dispose();
-        base.Dispose();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

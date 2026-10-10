@@ -74,6 +74,5 @@ public sealed class WorkerHarness : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await Worker.StopAsync(CancellationToken.None);
-        Worker.Dispose();
     }
 }

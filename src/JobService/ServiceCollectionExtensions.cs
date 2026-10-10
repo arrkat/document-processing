@@ -32,7 +32,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp => sp.GetRequiredService<Channel<DispatchRequest>>().Reader);
 
         services.AddSingleton<IProcessingEventHandler, ProcessingEventHandler>();
-        services.AddSingleton<ProcessorEventsSocketHandler>();
+        services.AddSingleton<ProcessorEventsReceiver>();
 
         // Retries are owned by JobDispatcher (long outages, Busy backoff) — no resilience handler here to avoid nested retries.
         services.AddHttpClient<IProcessorClient, ProcessorClient>((sp, client) =>

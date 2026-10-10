@@ -39,6 +39,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ProcessingWorker>();
         services.AddSingleton<IJobRunner>(sp => sp.GetRequiredService<ProcessingWorker>());
         services.AddHostedService(sp => sp.GetRequiredService<ProcessingWorker>());
+        services.AddSingleton<IWebSocketConnector, ClientWebSocketConnector>();
         services.AddSingleton<ProcessingEventsSocketClient>();
         services.AddHostedService(sp => sp.GetRequiredService<ProcessingEventsSocketClient>());
 

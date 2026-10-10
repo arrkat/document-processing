@@ -52,7 +52,7 @@ public static class JobStateTransitions
         JobState next = incoming switch
         {
             ProcessingStartedEvent => processing,
-            ProcessingProgressEvent progress => processing.Progress(progress.ProcessedDocuments, receivedAt, incoming.Sequence),
+            ProcessingProgressUpdatedEvent progress => processing.Progress(progress.ProcessedDocuments, receivedAt, incoming.Sequence),
             ProcessingFinishedEvent => processing.Complete(receivedAt),
             ProcessingFailedEvent failed => processing.Fail(failed.ErrorCode, failed.ErrorMessage, receivedAt),
             ProcessingCancelledEvent cancelled => processing.Cancel(receivedAt) with { ProcessedDocuments = cancelled.ProcessedDocuments },
