@@ -33,5 +33,32 @@ public sealed record TransitionResult(JobState? NewState, IgnoreReason? Ignored)
 /// </summary>
 public static class JobStateTransitions
 {
-    public static TransitionResult Apply(JobState current, ProcessingEvent incoming) => throw new NotImplementedException();
+    /// <param name="receivedAt">When the Job Service received the event. All timestamps record when the Job Service learned of a change,
+    /// which is what <c>LastUpdatedAt</c> and the watchdog need, and it avoids depending on the two machines' clocks agreeing.</param>
+    public static TransitionResult Apply(JobState current, ProcessingEvent incoming, DateTimeOffset receivedAt)
+    {
+        if (incoming.Sequence <= current.LastEventSequence)
+            return TransitionResult.Ignore(IgnoreReason.Duplicate);
+
+        var processing = current switch
+        {
+            PendingState pending => pending.Start(receivedAt, incoming.Sequence), // implicit start
+            ProcessingState running => running,
+            _ => null // Completed, Failed, Cancelled: nothing can change a terminal job
+        };
+        if (processing is null)
+            return TransitionResult.Ignore(IgnoreReason.InvalidTransition);
+
+        JobState next = incoming switch
+        {
+            ProcessingStartedEvent => processing,
+            ProcessingProgressEvent progress => processing.Progress(progress.ProcessedDocuments, receivedAt, incoming.Sequence),
+            ProcessingFinishedEvent => processing.Complete(receivedAt),
+            ProcessingFailedEvent failed => processing.Fail(failed.ErrorCode, failed.ErrorMessage, receivedAt),
+            ProcessingCancelledEvent cancelled => processing.Cancel(receivedAt) with { ProcessedDocuments = cancelled.ProcessedDocuments },
+            _ => throw new ArgumentOutOfRangeException(nameof(incoming), incoming.GetType().Name, "Unknown processing event.")
+        };
+
+        return TransitionResult.Changed(next with { LastActivityAt = receivedAt, LastEventSequence = incoming.Sequence });
+    }
 }

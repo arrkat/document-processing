@@ -1,6 +1,7 @@
 using Contracts.Documents;
 using Contracts.Jobs;
 using JobService.Application;
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 
@@ -35,13 +36,17 @@ public sealed class JobsController(IJobManager manager) : ControllerBase
     /// <summary>List jobs, newest first.</summary>
     /// <param name="status">Only jobs in this status.</param>
     /// <param name="page">1-based page number.</param>
-    /// <param name="pageSize">Jobs per page.</param>
+    /// <param name="pageSize">Jobs per page (1–100).</param>
     /// <param name="ct">Request cancellation.</param>
     /// <response code="200">One page of job summaries (no results).</response>
+    /// <response code="400">Invalid paging parameters.</response>
     [HttpGet]
     [ProducesResponseType<PagedResult<JobSummary>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> List(
-        [FromQuery] JobStatus? status, CancellationToken ct, [FromQuery] int page = 1, [FromQuery] int pageSize = 50) =>
+        [FromQuery] JobStatus? status, CancellationToken ct,
+        [FromQuery, Range(1, int.MaxValue)] int page = 1,
+        [FromQuery, Range(1, 100)] int pageSize = 50) =>
         Ok(await manager.ListAsync(status, page, pageSize, ct));
 
     /// <summary>Get a job.</summary>

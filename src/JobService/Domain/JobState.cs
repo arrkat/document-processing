@@ -25,14 +25,17 @@ public sealed record PendingState(DateTimeOffset LastActivityAt, long LastEventS
 {
     public override JobStatus Status => JobStatus.Pending;
 
-    public static PendingState Create(DateTimeOffset createdAt) => throw new NotImplementedException();
+    public static PendingState Create(DateTimeOffset createdAt) => new(createdAt, LastEventSequence: 0);
 
     /// <summary>The Processor has the job: from the dispatcher's 202 (sequence unchanged) or from any processing event (its sequence).</summary>
-    public ProcessingState Start(DateTimeOffset at, long sequence) => throw new NotImplementedException();
+    public ProcessingState Start(DateTimeOffset at, long sequence) =>
+        new(LastActivityAt: at, LastEventSequence: sequence, StartedAt: at, ProcessedDocuments: 0);
 
-    public FailedState Fail(ErrorCode errorCode, string? errorMessage, DateTimeOffset at) => throw new NotImplementedException();
+    public FailedState Fail(ErrorCode errorCode, string? errorMessage, DateTimeOffset at) =>
+        new(LastActivityAt: at, LastEventSequence, StartedAt: null, FailedAt: at, ProcessedDocuments: 0, errorCode, errorMessage);
 
-    public CancelledState Cancel(DateTimeOffset at) => throw new NotImplementedException();
+    public CancelledState Cancel(DateTimeOffset at) =>
+        new(LastActivityAt: at, LastEventSequence, StartedAt: null, CancelledAt: at, ProcessedDocuments: 0);
 }
 
 public sealed record ProcessingState(
@@ -44,14 +47,18 @@ public sealed record ProcessingState(
 {
     public override JobStatus Status => JobStatus.Processing;
 
-    public ProcessingState Progress(int processedDocuments, DateTimeOffset at, long sequence) => throw new NotImplementedException();
+    public ProcessingState Progress(int processedDocuments, DateTimeOffset at, long sequence) =>
+        this with { ProcessedDocuments = processedDocuments, LastActivityAt = at, LastEventSequence = sequence };
 
     /// <summary>On ProcessingFinished (the results blob is already fully written), or when the watchdog learns the job finished.</summary>
-    public CompletedState Complete(DateTimeOffset at) => throw new NotImplementedException();
+    public CompletedState Complete(DateTimeOffset at) =>
+        new(LastActivityAt: at, LastEventSequence, StartedAt, CompletedAt: at);
 
-    public FailedState Fail(ErrorCode errorCode, string? errorMessage, DateTimeOffset at) => throw new NotImplementedException();
+    public FailedState Fail(ErrorCode errorCode, string? errorMessage, DateTimeOffset at) =>
+        new(LastActivityAt: at, LastEventSequence, StartedAt, FailedAt: at, ProcessedDocuments, errorCode, errorMessage);
 
-    public CancelledState Cancel(DateTimeOffset at) => throw new NotImplementedException();
+    public CancelledState Cancel(DateTimeOffset at) =>
+        new(LastActivityAt: at, LastEventSequence, StartedAt, CancelledAt: at, ProcessedDocuments);
 }
 
 public sealed record CompletedState(

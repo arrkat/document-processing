@@ -1,4 +1,8 @@
 using BlobStorage;
+using Contracts;
+using Contracts.Jobs;
+using Contracts.Processing;
+using JobService.Domain;
 using JobService.Persistence;
 using JobService.Processing;
 using JobService.Settings;
@@ -27,10 +31,92 @@ public sealed class JobWatchdog(
     IOptions<WatchdogOptions> options,
     ILogger<JobWatchdog> logger) : BackgroundService
 {
-    /// <summary>One reconciliation pass. Public so it can be tested and triggered on WebSocket reconnect.</summary>
-    public Task ScanAsync(CancellationToken cancellationToken) =>
-        throw new NotImplementedException();
+    private readonly WatchdogOptions _options = options.Value;
 
-    // TODO: call ScanAsync every options.ScanInterval (PeriodicTimer created from timeProvider).
-    protected override Task ExecuteAsync(CancellationToken stoppingToken) => Task.CompletedTask;
+    /// <summary>One reconciliation pass. Public so it can be tested and triggered on WebSocket reconnect.</summary>
+    public async Task ScanAsync(CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        foreach (var job in await repository.ListByStatusAsync(JobStatus.Processing, cancellationToken))
+        {
+            if (now - job.State.LastActivityAt >= _options.StaleAfter)
+                await ReconcileAsync(job.Metadata.Id, cancellationToken);
+        }
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(_options.ScanInterval, timeProvider);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(stoppingToken))
+            {
+                try
+                {
+                    await ScanAsync(stoppingToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogError(ex, "Watchdog scan failed");
+                }
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Shutting down.
+        }
+    }
+
+    private async Task ReconcileAsync(string jobId, CancellationToken cancellationToken)
+    {
+        if (await blobStore.ExistsAsync(BlobKey.JobResults(jobId), cancellationToken))
+        {
+            await UpdateAsync(jobId, (processing, now) => processing.Complete(now), "results found", cancellationToken);
+            return;
+        }
+
+        ProcessingJobStatus? status;
+        try
+        {
+            status = await processorClient.GetStatusAsync(jobId, cancellationToken);
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogWarning("Job {JobId} has been silent and the Processor is unreachable ({Reason}); keeping it Processing", jobId, ex.Message);
+            return;
+        }
+
+        switch (status?.Status)
+        {
+            case null:
+                await UpdateAsync(jobId, (processing, now) => processing.Fail(ErrorCode.ProcessorTimeout,
+                    "The Processor no longer knows this job (it probably restarted).", now), "Processor lost the job", cancellationToken);
+                break;
+            case ProcessingStatus.Finished:
+                await UpdateAsync(jobId, (processing, now) => processing.Complete(now), "Processor reports Finished", cancellationToken);
+                break;
+            case ProcessingStatus.Failed:
+                await UpdateAsync(jobId, (processing, now) => processing.Fail(status.ErrorCode ?? ErrorCode.Unexpected, status.ErrorMessage, now),
+                    "Processor reports Failed", cancellationToken);
+                break;
+            case ProcessingStatus.Cancelled:
+                await UpdateAsync(jobId, (processing, now) => processing.Cancel(now) with { ProcessedDocuments = status.ProcessedDocuments },
+                    "Processor reports Cancelled", cancellationToken);
+                break;
+            case ProcessingStatus.Processing:
+                logger.LogDebug("Job {JobId} is quiet but still processing", jobId);
+                break;
+        }
+    }
+
+    private async Task UpdateAsync(string jobId, Func<ProcessingState, DateTimeOffset, JobState> transition, string reason,
+        CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        var update = await repository.TryUpdateStateAsync(jobId,
+            state => state is ProcessingState processing ? transition(processing, now) : null, cancellationToken);
+
+        if (update.Status == StateUpdateStatus.Updated)
+            logger.LogInformation("Watchdog resolved silent job {JobId} as {Status}: {Reason}", jobId, update.State!.Status, reason);
+    }
 }

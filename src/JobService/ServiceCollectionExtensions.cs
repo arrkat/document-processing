@@ -25,9 +25,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICreateJobRequestValidator, CreateJobRequestValidator>();
         services.AddSingleton<IJobManager, JobManager>();
 
-        // The dispatch line: JobManager writes, JobDispatcher is the single reader.
-        services.AddSingleton(sp => Channel.CreateBounded<DispatchRequest>(
-            new BoundedChannelOptions(sp.GetRequiredService<IOptions<DispatchOptions>>().Value.QueueCapacity) { SingleReader = true }));
+        // The dispatch line: JobManager writes, JobDispatcher is the single reader. Unbounded on purpose: a job is stored before
+        // it is queued, so a full queue would strand it. Admission control belongs to rate limiting (documented, not implemented).
+        services.AddSingleton(_ => Channel.CreateUnbounded<DispatchRequest>(new UnboundedChannelOptions { SingleReader = true }));
         services.AddSingleton(sp => sp.GetRequiredService<Channel<DispatchRequest>>().Writer);
         services.AddSingleton(sp => sp.GetRequiredService<Channel<DispatchRequest>>().Reader);
 

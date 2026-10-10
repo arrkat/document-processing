@@ -20,8 +20,8 @@ The graders care about structure, failure handling, concurrency, tests and docum
 | 2 | Document analyzer | 1h | ✅ Done |
 | 2b | Design refinement: one waiting line (Option C), Finished vs Completed, results only in the blob, size assumptions, controllers + Swagger | ~1h | ✅ Done |
 | 3 | Processor pipeline | 1.5h | ✅ Done |
-| 4 | Job Service core | 1.5h | ⏭ Next |
-| 5 | WebSocket link | 1.5h | ⬜ |
+| 4 | Job Service core | 1.5h | ✅ Done |
+| 5 | WebSocket link | 1.5h | ⏭ Next |
 | 6 | End-to-end + load | 1h | ⬜ |
 | 7 | Docs + deliverables | 1h | ⬜ |
 | 8 | Bonus: Audit Service, only if time remains | — | ⬜ |
@@ -172,7 +172,7 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
   - Transition methods exist only on the states where the transition is legal. Terminal states have none.
   - The base record carries `LastActivityAt` (for the watchdog) and `LastEventSequence` (for dedupe).
   - Nullables remain only where they describe reality. For example, `FailedState.StartedAt` is null when the job failed before it started.
-- **`JobStateTransitions.Apply(state, event)`** is a **pure** function. It maps untrusted events (duplicate, late, out of order) onto legal transitions and returns either a new state or an ignore reason (`Duplicate` / `InvalidTransition`). It runs inside `IJobRepository.TryUpdateStateAsync`, a compare-and-swap that may retry, so all side effects happen in the caller afterwards.
+- **`JobStateTransitions.Apply(state, event, receivedAt)`** is a **pure** function (the receive time is an input, not a clock call; all timestamps record when the Job Service learned of a change, so the two machines' clocks never need to agree). It maps untrusted events (duplicate, late, out of order) onto legal transitions and returns either a new state or an ignore reason (`Duplicate` / `InvalidTransition`). It runs inside `IJobRepository.TryUpdateStateAsync`, a compare-and-swap that may retry, so all side effects happen in the caller afterwards.
 - **`Job(Metadata, State)`** is the read model. `ToSummary()` flattens it into the flat public DTO.
 - **Who decides what.** The Job Service decides only what happens *before* the handover: waiting, cancel while waiting, unreachable, rejected. After the Processor accepts a job (its 202), the Job Service **records what the Processor reports** (the 202, the events, or its status when the watchdog asks). It never decides anything about processing itself, so its processing-phase state is a read model fed by the Processor, not a second source of truth.
   ```
@@ -193,7 +193,7 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
 - **The Processor re-validates its own requests** (defense in depth): the jobId is a safe key segment, `documentsRef` is a valid blob key, and `documentCount` is in range.
 
 ### Concurrency
-- **One waiting line, in the Job Service.** The Processor has no intake queue. It accepts a job only when one of its job slots is free (`MaxConcurrentJobs`, default 10), checked without blocking. Otherwise it answers 503 Busy, and the job stays at the head of the Job Service's dispatch line.
+- **One waiting line, in the Job Service.** The Processor has no intake queue. It accepts a job only when one of its job slots is free (`MaxConcurrentJobs`, default 10), checked without blocking. Otherwise it answers 503 Busy, and the job stays at the head of the Job Service's dispatch line. That line is an **unbounded** `Channel<DispatchRequest>` on purpose: a job is stored before it is queued, so a full queue would strand it. Admission control belongs to rate limiting (documented, not implemented).
 - **Two limits inside the Processor:**
   - **Per job:** at most `PerJobParallelism` (default 4) documents of one job in flight, so one large job can't take every slot.
   - **Global:** every document analysis enters one shared `SemaphoreSlim` (default `ProcessorCount`).
@@ -279,7 +279,7 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
 | Mutable `JobState` class with a lock | Live-list enumeration bugs and unguarded transitions. Replaced by an immutable compare-and-swap design. |
 | `/api/process`, `DELETE` for cancel | REST paths are nouns; a cancelled job is not deleted. |
 | Idempotency-Key on job creation | Too much for the time-box. Listed as a README limitation. |
-| Rate limiting | Same. Bounded queues and 503 are the overload story. |
+| Rate limiting | Same. The Processor's job slots and 503 Busy bound the processing work; jobs wait in the Job Service. |
 | Job priority | Not asked for; fairness matters more. A README note covers it. |
 | Intake queue inside the Processor | It made a second waiting line for the same jobs. The Processor now accepts only when a slot is free (503 otherwise), and the Job Service holds the one line. |
 | Job Service counts Processor capacity | The two services would have to agree on a number, and one lost event makes it drift. Asking the Processor ("503 Busy") is always accurate. |
@@ -302,7 +302,7 @@ Production hardening goes in the README's "Known limitations" section instead of
 | Run id per Processor start | After a restart, the same job's sequence numbers restart, so progress can appear to jump backwards. Harmless |
 | Double failure: HTTP replies *and* the WebSocket down for the whole retry window | The job is marked Failed although it completed; "first terminal state wins" keeps it Failed |
 | Idempotency-Key on `POST /api/jobs` | Duplicate jobs on double clicks or client retries |
-| Rate limiting (429) | Overload is handled by bounded queues and 503 today |
+| Rate limiting (429) | Today any number of jobs can be submitted; they wait in the dispatch line (memory). The Processor's job slots still bound the processing work |
 | Graceful shutdown with requeue | Today the watchdog catches abandoned jobs |
 | Job priority | Not requested |
 | Retention / eviction of finished jobs and blobs | Job state and blobs grow with job count |
@@ -350,7 +350,7 @@ Production hardening goes in the README's "Known limitations" section instead of
      - cancelling a running job → ProcessingCancelled
      - missing input blob → `Failed(InputUnavailable)`
      - analyzer exception → `Failed(Unexpected)`.
-4. **Job Service core.**
+4. **Job Service core** ✅
    - The state transition methods, `JobStateTransitions.Apply` (table-driven tests) and `Job.ToSummary`
    - `InMemoryJobRepository` (compare-and-swap)
    - `CreateJobRequestValidator`, `JobManager`

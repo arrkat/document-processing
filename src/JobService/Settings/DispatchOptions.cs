@@ -4,8 +4,6 @@ public sealed class DispatchOptions
 {
     public const string SectionName = "Dispatch";
 
-    public int QueueCapacity { get; set; } = 1000;
-
     /// <summary>Attempts while the Processor is unreachable before Failed(ProcessorUnavailable). Busy (503) responses do not count.</summary>
     public int MaxAttempts { get; set; } = 6;
 
