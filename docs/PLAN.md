@@ -17,8 +17,9 @@ The graders care about structure, failure handling, concurrency, tests and docum
 | # | Stage | Est. | Status |
 |---|---|---|---|
 | 1 | Skeleton: projects, contracts, interfaces, REST/WS routes, DI, blob storage | ~1h | ✅ Done |
-| 2 | Document analyzer | 1h | ⏭ Next |
-| 3 | Processor pipeline | 1.5h | ⬜ |
+| 2 | Document analyzer | 1h | ✅ Done |
+| 2b | Design refinement: one waiting line (Option C), Finished vs Completed, results only in the blob, size assumptions, controllers + Swagger | ~1h | ✅ Done |
+| 3 | Processor pipeline | 1.5h | ⏭ Next |
 | 4 | Job Service core | 1.5h | ⬜ |
 | 5 | WebSocket link | 1.5h | ⬜ |
 | 6 | End-to-end + load | 1h | ⬜ |
@@ -40,26 +41,34 @@ Stages 3 and 4 are independent of each other. Stage 5 needs both.
 
 ```
 ── POST /api/jobs (synchronous) ────────────────────────────────────────────────
-Client ─► JobsEndpoints ─► JobManager.CreateAsync
+Client ─► JobsController ─► JobManager.CreateAsync
             1. validate request           (invalid → 400 ValidationProblem; nothing stored)
             2. write blob jobs/{id}/documents.json
             3. store JobMetadata + PendingState
             4. enqueue jobId on dispatch queue
 Client ◄─ 202 Accepted + Location + JobSummary (Pending)
 
-── Job Service background ──────────────────────────────────────────────────────
-JobDispatcher ─► POST /api/processing-jobs { jobId, documentsRef, documentCount }
-   202/200 → done · 503/unreachable → backoff + retry → Failed(ProcessorUnavailable) · 400 → Failed(ProcessorRejected)
+── Job Service background (the ONE waiting line) ───────────────────────────────
+JobDispatcher, one job at a time in FIFO order:
+   still Pending? no → drop it
+   ─► POST /api/processing-jobs { jobId, documentsRef, documentCount }
+   202 / 200 (already known) → done
+   503 Busy        → same job stays at the head; retry after BusyRetryDelay or when a terminal event frees a slot
+   unreachable     → backoff (bounded, ~1 min) → Failed(ProcessorUnavailable)
+   400 Rejected    → Failed(ProcessorRejected)
 
 ── Processor ───────────────────────────────────────────────────────────────────
-register job (+ cancellation token) → bounded intake queue → worker picks it up
-   → JobStarted → read documents blob → analyse docs (per-job parallelism + global limiter)
-   → throttled JobProgress → write blob jobs/{id}/results.json → JobCompleted { resultsRef }
+JobIntake: validate (400) → already known? (200) → IJobRunner.TryStart:
+   free job slot? no → 503 Busy (nothing registered)
+   register atomically → start in background → 202
+ProcessingWorker.ProcessAsync:
+   ProcessingStarted → read documents blob → analyse docs (per-job parallelism + global SemaphoreSlim)
+   → throttled ProcessingProgress → write blob jobs/{id}/results.json → ProcessingFinished { resultsRef } → free the slot
 
 ── Events back (WebSocket, Processor is the client) ────────────────────────────
 JobEventHandler: JobStateTransitions.Apply inside an atomic state update
-   JobCompleted → job stays Processing; enqueue results ingestion
-ResultsIngestor: read results blob → save results → ProcessingState.Complete → Completed
+   ProcessingFinished → job stays Processing; enqueue results ingestion
+ResultsIngestor: verify results blob → ProcessingState.Complete → Completed (results stay in the blob)
 ```
 
 ### Claim-check: messages carry metadata and references only
@@ -72,7 +81,44 @@ ResultsIngestor: read results blob → save results → ProcessingState.Complete
 - The results key is deterministic (`BlobKey.JobResults(jobId)`), so the Job Service can always rebuild it.
 - Blob payloads carry a `SchemaVersion`.
 
+### Size assumptions
+
+These are an architectural assumption, documented here and in the README. Only the per-document limit is enforced in code (`DocumentLimits.MaxContentLength`).
+
+| Limit | Value | Roughly |
+|---|---|---|
+| Documents per job | 1,000 | from the spec |
+| Characters per document | 100,000 | ~15k words, ~40 pages |
+| Characters per job (total) | 10,000,000 | ~10 MB of text, averaging 10k characters per document |
+| HTTP request body | 30 MB (Kestrel default) | 10M Hebrew characters is 20 MB in UTF-8, plus JSON overhead |
+
+- **Why both a per-document and a per-job limit:**
+  - Per-document only: 1,000 × 100k ≈ 200 MB of memory for one job, and ~2 GB for 10 jobs.
+  - Per-job only: one 10M-character document becomes a single huge unit of CPU work that per-job parallelism can't split.
+- **Worst case:**
+  - Processor input ≈ 10 jobs × 10M characters × 2 bytes (UTF-16) ≈ 200 MB.
+  - Processor results ≈ 2 MB.
+  - Job Service memory stays small: documents go to the blob immediately, and only job state stays in memory.
+- **Lifting the limits** would need streaming: reading documents from the blob one at a time instead of loading them all at once.
+
+### Where data lives (one home each)
+
+| Data | Home | Notes |
+|---|---|---|
+| Document contents | `jobs/{id}/documents.json` | The Job Service writes it and doesn't keep it. The Processor loads it only while processing |
+| Job metadata + state | Job Service `IJobRepository` (in memory) | Small; needed for Pending/Failed/Cancelled jobs (no results), listing/paging, and the compare-and-swap |
+| Results | `jobs/{id}/results.json` | Written once by the Processor. The Job Service reads it on demand for `GET …/{id}` and `GET …/{id}/results`; nothing is copied |
+| `JobSummary` / `JobDetails` | not stored | Built per request |
+| Processor job registry | Processor memory | The Processor's own view (idempotency, cancellation), not a copy of Job Service state |
+
+During processing, results accumulate in an in-memory array (one slot per document, no locks) and are written to `results.json` once, atomically, at the end. If the Processor crashes mid-job, the partial results are lost and the watchdog handles the job.
+
+In-memory storage is allowed by the spec. Swapping `InMemoryJobRepository` for SQLite or Postgres is one new class behind the same interface, and would give restart survival, transactions and SQL paging.
+
 ### REST API
+
+- **Style:** controllers (`[ApiController]`): `JobsController` in the Job Service, `ProcessingJobsController` in the Processor. The Processor-events WebSocket stays a single mapped endpoint (`/ws/processor-events`).
+- **Swagger:** always on, at `/swagger` on both services (http://localhost:5100/swagger, http://localhost:5200/swagger). Each operation is documented from XML comments: summary, remarks (limits, idempotency, retry behavior) and every response code with its body type. This is the spec's "Swagger flow to POC" deliverable.
 
 **Job Service**
 
@@ -89,27 +135,27 @@ ResultsIngestor: read results blob → save results → ProcessingState.Complete
 
 | Method | Path | Result |
 |---|---|---|
-| POST | `/api/processing-jobs` | 202 new / 200 already known (idempotent on jobId) / 400 / 503 + Retry-After |
+| POST | `/api/processing-jobs` | 202 started / 200 already known (idempotent on jobId) / 400 / 503 + Retry-After when all job slots are busy |
 | GET | `/api/processing-jobs/{jobId}` | 200 `ProcessingJobStatus` / 404, used for reconciliation |
 | POST | `/api/processing-jobs/{jobId}/cancel` | 202 / 404 / 409 |
 
 Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is stopped, not deleted.
 
 ### WebSocket events
+- **Vocabulary:** events describe the Processor's *processing*, not the job's lifecycle. The Processor's terminal success is **Finished** (`ProcessingStatus.Finished`, `ProcessingFinished` event): its work is done and `results.json` is written. Only the Job Service uses **Completed**, once it has verified the results.
 - **Envelope:** `{ type, eventId, jobId, sequence, timestamp, ... }`, serialized as polymorphic JSON with a `type` discriminator.
   - `eventId` is used to recognise duplicates.
   - `sequence` increases per job and is used to detect duplicate or stale events.
 - **Types:**
-  - `JobStarted(totalDocuments)`
-  - `JobProgress(processed, total)`, throttled
-  - `JobCompleted(resultsRef)`
-  - `JobFailed(errorCode, message)`
-  - `JobCancelled(processed)`
+  - `ProcessingStarted(totalDocuments)`
+  - `ProcessingProgress(processed, total)`, throttled
+  - `ProcessingFinished(resultsRef)`
+  - `ProcessingFailed(errorCode, message)`
+  - `ProcessingCancelled(processed)`
 - **`ErrorCode`** values:
   - `ProcessorUnavailable`
   - `ProcessorRejected`
   - `ProcessorTimeout`
-  - `ProcessorShuttingDown`
   - `InputUnavailable`
   - `ResultsUnavailable`
   - `Unexpected`
@@ -128,44 +174,54 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
 - **`JobStateTransitions.Apply(state, event)`** is a **pure** function. It maps untrusted events (duplicate, late, out of order) onto legal transitions and returns either a new state or an ignore reason (`Duplicate` / `InvalidTransition`). It runs inside `IJobRepository.TryUpdateStateAsync`, a compare-and-swap that may retry, so all side effects happen in the caller afterwards.
 - **`Job(Metadata, State)`** is the read model. `ToSummary()` flattens it into the flat public DTO.
 - **Results ingestion is internal Job Service work, not a lifecycle state.**
-  - `JobCompleted` leaves the job in Processing and only bumps its sequence.
-  - The ingestor calls `Complete` after the results have been saved.
+  - `ProcessingFinished` leaves the job in Processing and only bumps its sequence.
+  - The ingestor verifies the results blob (readable, one result per document) and then calls `Complete`.
   - Ingestion is idempotent, because only one `Complete` can win.
 
 ### Validation
 - **Rules for `POST /api/jobs`:**
   - The documents list is present, with 1..1000 entries.
   - Each id is non-empty, unique, and at most 128 characters.
-  - Content is non-null and at most 1M characters. Empty or whitespace-only content is **valid**.
-- **Where it runs:** the validator is a pure interface returning `IReadOnlyDictionary<fieldPath, messages[]>`. It is called by `JobManager` before anything is stored. The endpoint copies the errors into a `Dictionary` only because `TypedResults.ValidationProblem` requires `IDictionary`.
+  - Content is non-null and at most 100,000 characters. Empty or whitespace-only content is **valid**.
+- **Where it runs:** the validator is a pure interface returning `IReadOnlyDictionary<fieldPath, messages[]>`. It is called by `JobManager` before anything is stored. The controller copies the errors into a `Dictionary` only because `ValidationProblemDetails` requires `IDictionary`. ASP.NET's implicit "non-nullable means required" check is switched off, so our validators are the only source of validation messages; malformed JSON still gets an automatic 400.
 - **The Processor re-validates its own requests** (defense in depth): the jobId is a safe key segment, `documentsRef` is a valid blob key, and `documentCount` is in range.
 
 ### Concurrency
-- The Processor runs N job workers (default 10) that read from a bounded `Channel<ProcessingJob>`.
-- Each job processes its documents with small per-job parallelism.
-- Every document acquires a **global** `SemaphoreSlim` (default `ProcessorCount`) before its CPU work.
-- Together these give a bounded total and fair interleaving between jobs. `Parallel.ForEachAsync` alone limits only within one job.
+- **One waiting line, in the Job Service.** The Processor has no intake queue. It accepts a job only when one of its job slots is free (`MaxConcurrentJobs`, default 10), checked without blocking. Otherwise it answers 503 Busy, and the job stays at the head of the Job Service's dispatch line.
+- **Two limits inside the Processor:**
+  - **Per job:** at most `PerJobParallelism` (default 4) documents of one job in flight, so one large job can't take every slot.
+  - **Global:** every document analysis enters one shared `SemaphoreSlim` (default `ProcessorCount`).
+
+  Jobs × per-job parallelism (10 × 4 = 40) can exceed the core count, and the global limit caps the CPU work actually running at once. .NET doesn't pin work to cores: everything runs on the shared thread pool.
 - The analysis is CPU-bound, so async helps only for I/O.
 - Nothing blocks: no `.Result`, `.Wait()` or `Thread.Sleep`.
-- When the queue is full, `TryEnqueue` returns false and the endpoint responds 503 + Retry-After. The dispatcher treats 503 as retryable.
+- Tests use the real `Channel`s (in-memory and deterministic) and a slow fake `IDocumentAnalyzer` to measure peak concurrency. No wrapper classes are needed.
 
 ### Reliability
-- **Processor unreachable.** POST /api/jobs never calls the Processor directly. The dispatcher retries with backoff, then marks the job `Failed(ProcessorUnavailable)`.
-- **Idempotency between the services.** Submitting the same jobId twice returns 200 and does no new work.
-- **Duplicate or out-of-order events** are ignored by `Apply`, using the per-job sequence.
+- **Don't declare Failed early.** Transient problems are retried for a bounded time. `Failed` means waiting won't help.
+- **Processor busy (503)** is not a failure and not an attempt. The dispatcher waits `BusyRetryDelay`, or less if a terminal event frees a slot.
+- **Processor unreachable.** POST /api/jobs never calls the Processor directly. The dispatcher retries with exponential backoff for a bounded window (`MaxAttempts`, about 1 minute by default), then marks the job `Failed(ProcessorUnavailable)`.
+- **A timeout is not "down".** A lost or slow reply looks identical to an outage, but the Processor may have started the job. That's resolved by idempotency:
+  - The **jobId is the idempotency key**. The Processor checks "already known" *before* checking capacity, so a retry of a running job gets 200, not 503.
+  - Registration is atomic (`TryAdd`). Finished jobs are kept, so a late retry never reruns a job.
+  - Before every retry the dispatcher checks that the job is still Pending. If `ProcessingStarted` arrived over the WebSocket, it stops.
+  - Delivery is at-least-once (dispatcher retries) and processing is effectively once (the Processor deduplicates).
+- **Duplicate or out-of-order events** are ignored by `Apply`, using the per-job sequence. The first terminal state wins.
 - **WebSocket disconnect:**
-  - The Processor buffers outbound events in a bounded buffer. When it's full, it drops the oldest progress events but never terminal events.
-  - It reconnects with backoff and jitter, resends the event that was in flight when the connection dropped, then resends a snapshot of every known job.
-  - Delivery is at-least-once; receivers are idempotent.
-- **Lost `JobCompleted` or a Processor crash.** The watchdog checks Processing jobs that have had no activity for too long:
+  - Events go through a bounded `Channel<JobEvent>` with a single reader, the socket client.
+  - While disconnected, the client keeps reading and **discards** events, so the channel never fills. It reconnects with backoff and jitter.
+  - On every (re)connect it sends a **snapshot**: one event per job, built from the registry's current status. The registry is updated before events are published, so the snapshot supersedes anything discarded.
+  - Receivers are idempotent.
+- **Lost `ProcessingFinished` or a Processor crash.** The watchdog checks Processing jobs that have had no activity for too long:
   - The results blob exists → ingest it.
   - The Processor reports Failed or Cancelled → apply that.
-  - The Processor doesn't know the job → `Failed(ProcessorTimeout)`.
-  - The Processor is unreachable → retry on the next scan.
+  - The Processor doesn't know the job (it restarted) → `Failed(ProcessorTimeout)`.
+  - The Processor is unreachable → try again on the next scan.
 - **Cancellation.**
-  - A cancellation token is registered before the job is enqueued, so a job cancelled while queued is skipped.
-  - The first terminal state wins. A cancel that races with ingestion may win, which is documented.
-- **Shutdown.** The Processor stops reading new jobs, and in-flight jobs end with `Failed(ProcessorShuttingDown)`.
+  - A Pending job is cancelled locally: it's dropped from the dispatch line.
+  - A Processing job's cancel is forwarded to the Processor, which fires that job's token and emits `ProcessingCancelled`.
+  - The first terminal state wins.
+- **Shutdown.** The Processor cancels in-flight jobs without sending a terminal event. The watchdog then detects them as `ProcessorTimeout`.
 
 ### Text analysis rules
 - **Words:**
@@ -182,7 +238,12 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
 ### Job outcome semantics
 - **No per-document failures.** Validation guarantees every document is analysable (tokenizing, counting and hashing always produce an answer), so `DocumentResult` has no status and jobs have no succeeded/failed counts. An empty document has zero counts, no top words and the hash of `""`.
 - **Completed:** every document was analysed.
-- **Failed:** reserved for job-level problems (unreachable, timeout, input or results unavailable, unexpected error).
+- **Failed:** reserved for job-level problems where waiting won't help:
+  - unreachable after the retry window
+  - rejected
+  - Processor lost the job
+  - input or results unavailable
+  - an unexpected error.
 
 ### Observability
 - Structured `ILogger` logging with a JobId scope.
@@ -206,6 +267,36 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
 | Idempotency-Key on job creation | Too much for the time-box. Listed as a README limitation. |
 | Rate limiting | Same. Bounded queues and 503 are the overload story. |
 | Job priority | Not asked for; fairness matters more. A README note covers it. |
+| Intake queue inside the Processor | It made a second waiting line for the same jobs. The Processor now accepts only when a slot is free (503 otherwise), and the Job Service holds the one line. |
+| Job Service counts Processor capacity | The two services would have to agree on a number, and one lost event makes it drift. Asking the Processor ("503 Busy") is always accurate. |
+| Endless dispatch retries | Not production practice. A bounded window, then `Failed`, with a retry endpoint as the documented next step. |
+| Wrapper classes around `Channel` / `SemaphoreSlim`, an event factory | Real channels and semaphores are deterministic in tests, and `ChannelWriter` / `ChannelReader` already separate the two sides. |
+| Copying results into the Job Service repository | It duplicated `results.json` and made memory grow with every completed job. Results are read from the blob on demand. |
+| Drop-oldest-progress outbound buffer | The reconnect snapshot makes discarding events while disconnected safe, which is simpler. |
+
+---
+
+## Documented, not implemented
+
+Production hardening goes in the README's "Known limitations" section instead of the code.
+
+| Item | Rationale |
+|---|---|
+| `POST /api/jobs/{id}/retry` with retryable error codes (`ProcessorUnavailable`, `ProcessorTimeout`, `ResultsUnavailable`) and `Failed → Pending` | Manual replay instead of endless retries, like a dead-letter queue |
+| Processor's "already known" 200 returning the job's current status | Lets a retried dispatch learn the job already completed. Only needed with the retry endpoint |
+| Automatic requeue after a Processor restart, with a poison-job cap | Today the watchdog fails the job; retry would be the recovery path |
+| Run id per Processor start | After a restart, the same job's sequence numbers restart, so progress can appear to jump backwards. Harmless |
+| Double failure: HTTP replies *and* the WebSocket down for the whole retry window | The job is marked Failed although it completed; "first terminal state wins" keeps it Failed |
+| Idempotency-Key on `POST /api/jobs` | Duplicate jobs on double clicks or client retries |
+| Rate limiting (429) | Overload is handled by bounded queues and 503 today |
+| Graceful shutdown with requeue | Today the watchdog catches abandoned jobs |
+| Job priority | Not requested |
+| Retention / eviction of finished jobs and blobs | Job state and blobs grow with job count |
+| Streaming documents (lifting the size limits) | Today a job's documents are loaded at once; see Size assumptions |
+| Incremental result writes (resume after a crash) | Today results are written once at the end |
+| Durable storage, a broker, multiple Processors | In-memory is allowed by the spec; each is "swap the implementation" |
+| Pending visibility (attempt count, last dispatch error on the job) | Logged today |
+| Letters outside the BMP dropped by the tokenizer | Rare scripts only |
 
 ---
 
@@ -221,7 +312,7 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
      - `tools/LoadGen`
    - Blob storage is implemented with contract tests run against both stores.
    - Health checks pass in integration tests.
-2. **Document analyzer.** `DocumentAnalyzer.Analyze`, with fixed sample documents and known answers:
+2. **Document analyzer** ✅ `TextMetrics` and `DocumentAnalyzer.Analyze`, with fixed sample documents and known answers:
    - empty and whitespace-only content
    - punctuation and casing
    - Hebrew/Unicode
@@ -230,16 +321,21 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
    - a large document
    - a hash checked with `shasum -a 256`.
 3. **Processor pipeline.**
-   - `JobRegistry`, `ChannelProcessingQueue`, `SemaphoreDocumentConcurrencyLimiter`
-   - `JobEventFactory`, `OutboundEventBuffer`
-   - `JobProcessor`, `ProcessingWorkerPool`
-   - `ProcessJobRequestValidator`, `ProcessingService`
-   - Tests: the concurrency cap is never exceeded, cancelling queued and running jobs, the full queue returns 503, and idempotent resubmits.
+   - `ProcessJobRequestValidator`, `JobIntake`, `JobRegistry`
+   - `ProcessingWorker` (job slots, global `SemaphoreSlim`, `TryStart`, `ProcessAsync`)
+   - Tests:
+     - invalid → 400; known jobId → 200 even when busy; all slots busy → 503 with nothing registered
+     - registry transitions; the first terminal state wins
+     - happy path writes the results blob and emits Started → Progress → Completed
+     - the global cap is never exceeded (slow fake analyzer)
+     - cancelling a running job → ProcessingCancelled
+     - missing input blob → `Failed(InputUnavailable)`
+     - analyzer exception → `Failed(Unexpected)`.
 4. **Job Service core.**
    - The state transition methods, `JobStateTransitions.Apply` (table-driven tests) and `Job.ToSummary`
    - `InMemoryJobRepository` (compare-and-swap)
    - `CreateJobRequestValidator`, `JobManager`
-   - The dispatch and ingestion queues, `JobDispatcher`, `ProcessorClient` (tested with a fake `HttpMessageHandler`)
+   - The dispatch and ingestion queues (plain channels, wrappers removed), `JobDispatcher` (FIFO; Busy is not an attempt; bounded unreachable window; wake-up on terminal events), `ProcessorClient` (tested with a fake `HttpMessageHandler`)
    - `ResultsIngestor`, `JobWatchdog`
 5. **WebSocket link.**
    - Job Service side: `ProcessorEventsSocketHandler` and `JobEventHandler`.
@@ -259,6 +355,7 @@ Cancel is `POST …/cancel` on both services, not `DELETE`, because the job is s
 - Run both services, then use Swagger/Postman:
   - Happy path: POST → poll GET → Completed with results.
   - An invalid payload returns 400.
-- Stop the Processor, then POST a job → retries, then `Failed(ProcessorUnavailable)`.
-- Restart the Processor mid-job → the WebSocket reconnects, and the job completes through reconciliation or fails through the watchdog.
+- Stop the Processor, then POST a job → retries for about a minute, then `Failed(ProcessorUnavailable)`. Start the Processor within the window → the job completes.
+- Submit more jobs than there are job slots → the extra jobs stay Pending, then start as slots free up. None fail.
+- Restart the Processor mid-job → the WebSocket reconnects, and the watchdog marks the job `Failed(ProcessorTimeout)`.
 - `dotnet run --project tools/LoadGen -- --jobs 10 --docs 1000` → all jobs reach a terminal state, and the timings go in the README.

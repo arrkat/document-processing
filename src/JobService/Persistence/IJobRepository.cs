@@ -1,4 +1,3 @@
-using Contracts.Documents;
 using Contracts.Jobs;
 using JobService.Domain;
 
@@ -7,6 +6,7 @@ namespace JobService.Persistence;
 /// <summary>
 /// Job storage. In-memory today; this interface is what a persistent implementation replaces.
 /// Metadata is insert-only; state changes only through <see cref="TryUpdateStateAsync"/>.
+/// Results are not stored here: their single home is the results blob (<see cref="BlobStorage.BlobKey.JobResults"/>).
 /// </summary>
 public interface IJobRepository
 {
@@ -25,9 +25,4 @@ public interface IJobRepository
     /// The updater may run more than once under contention and must be side-effect free. Returning <c>null</c> means "no change".
     /// </summary>
     Task<StateUpdateResult> TryUpdateStateAsync(string jobId, Func<JobState, JobState?> update, CancellationToken cancellationToken = default);
-
-    Task SaveResultsAsync(string jobId, IReadOnlyList<DocumentResult> results, CancellationToken cancellationToken = default);
-
-    /// <returns><c>null</c> if no results were saved for the job.</returns>
-    Task<IReadOnlyList<DocumentResult>?> GetResultsAsync(string jobId, CancellationToken cancellationToken = default);
 }

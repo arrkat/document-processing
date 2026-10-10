@@ -6,9 +6,10 @@ using Microsoft.Extensions.Options;
 namespace JobService.Results;
 
 /// <summary>
-/// Reads the results blob, saves the results, then calls <see cref="Domain.ProcessingState.Complete"/>.
-/// Idempotent: duplicate requests re-read the blob harmlessly and the second Complete is declined by the state.
-/// Retries blob reads; after <see cref="ResultsIngestionOptions.MaxAttempts"/> failures the job becomes Failed(ResultsUnavailable).
+/// Verifies the results blob (readable, valid JSON, one result per document), then calls <see cref="Domain.ProcessingState.Complete"/>.
+/// The results are not copied anywhere: the blob stays their single home, and "Completed" guarantees it can be read.
+/// Idempotent: a duplicate request re-verifies harmlessly and the second Complete is declined by the state.
+/// Retries reads; after <see cref="ResultsIngestionOptions.MaxAttempts"/> failures the job becomes Failed(ResultsUnavailable).
 /// </summary>
 public sealed class ResultsIngestor(
     IResultsIngestionQueue queue,

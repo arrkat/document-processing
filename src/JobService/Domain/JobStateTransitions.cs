@@ -25,11 +25,11 @@ public sealed record TransitionResult(JobState? NewState, IgnoreReason? Ignored)
 /// so side effects (enqueue results ingestion, logging) belong to the caller, after the update.
 /// </para>
 /// <para>
-/// JobCompleted does not complete the job: it returns the Processing state with the new sequence/activity; the caller then enqueues
+/// ProcessingFinished does not complete the job: it returns the Processing state with the new sequence/activity; the caller then enqueues
 /// results ingestion, and only the ingestor calls <see cref="ProcessingState.Complete"/>.
 /// </para>
 /// </summary>
 public static class JobStateTransitions
 {
-    public static TransitionResult Apply(JobState current, JobEvent incoming) => throw new NotImplementedException();
+    public static TransitionResult Apply(JobState current, ProcessingEvent incoming) => throw new NotImplementedException();
 }

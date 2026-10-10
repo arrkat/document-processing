@@ -3,11 +3,9 @@ using Contracts.Processing;
 
 namespace ProcessorService.Jobs;
 
-public sealed class JobRegistry(TimeProvider timeProvider) : IJobRegistry
+public sealed class JobRegistry : IJobRegistry
 {
     public bool TryRegister(ProcessingJob job) => throw new NotImplementedException();
-
-    public void Unregister(string jobId) => throw new NotImplementedException();
 
     public ProcessingJobStatus? GetStatus(string jobId) => throw new NotImplementedException();
 
@@ -18,11 +16,9 @@ public sealed class JobRegistry(TimeProvider timeProvider) : IJobRegistry
 
     public CancelOutcome RequestCancel(string jobId) => throw new NotImplementedException();
 
-    public bool TryMarkStarted(string jobId) => throw new NotImplementedException();
-
     public void ReportProgress(string jobId, int processedDocuments) => throw new NotImplementedException();
 
-    public bool TryMarkCompleted(string jobId, string resultsRef) => throw new NotImplementedException();
+    public bool TryMarkFinished(string jobId, string resultsRef) => throw new NotImplementedException();
 
     public bool TryMarkFailed(string jobId, ErrorCode errorCode, string? errorMessage) => throw new NotImplementedException();
 

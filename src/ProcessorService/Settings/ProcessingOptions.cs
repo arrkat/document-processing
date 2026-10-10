@@ -4,11 +4,8 @@ public sealed class ProcessingOptions
 {
     public const string SectionName = "Processing";
 
-    /// <summary>Jobs waiting in the intake queue before POST returns 503.</summary>
-    public int QueueCapacity { get; set; } = 100;
-
-    /// <summary>Jobs processed at the same time.</summary>
-    public int WorkerCount { get; set; } = 10;
+    /// <summary>Job slots: jobs processed at the same time. A submit beyond this returns 503 Busy.</summary>
+    public int MaxConcurrentJobs { get; set; } = 10;
 
     /// <summary>Max documents of a single job in flight at once.</summary>
     public int PerJobParallelism { get; set; } = 4;

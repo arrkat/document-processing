@@ -6,9 +6,17 @@ using Microsoft.Extensions.Options;
 namespace JobService.Dispatch;
 
 /// <summary>
-/// Drains <see cref="IJobDispatchQueue"/> and submits each job to the Processor, retrying Busy/Unavailable with exponential backoff.
-/// After <see cref="DispatchOptions.MaxAttempts"/> failures (or a Rejected response) the job becomes Failed.
-/// Skips jobs that are no longer Pending (e.g. cancelled while waiting).
+/// The Job Service's single waiting line. Sends one job at a time, in submission (FIFO) order, so jobs start in order:
+/// <list type="bullet">
+/// <item>Before every attempt: if the job is no longer Pending (cancelled, or events already moved it on), drop it.</item>
+/// <item>Accepted (202, or 200 already known) → done; the job stays Pending until ProcessingStarted arrives.</item>
+/// <item>Busy (503) → not a failure and not an attempt: keep the same job at the head and wait
+/// <see cref="DispatchOptions.BusyRetryDelay"/> or until <see cref="IDispatchWakeUp.SlotFreed"/>, whichever comes first.</item>
+/// <item>Unavailable (connection error / timeout / 5xx) → exponential backoff; after <see cref="DispatchOptions.MaxAttempts"/>
+/// → Failed(ProcessorUnavailable).</item>
+/// <item>Rejected (400) → Failed(ProcessorRejected), no retry.</item>
+/// </list>
+/// The Processor is idempotent on jobId, so a retry after a lost reply never runs the job twice.
 /// </summary>
 public sealed class JobDispatcher(
     IJobDispatchQueue queue,
@@ -16,12 +24,14 @@ public sealed class JobDispatcher(
     IProcessorClient processorClient,
     TimeProvider timeProvider,
     IOptions<DispatchOptions> options,
-    ILogger<JobDispatcher> logger) : BackgroundService
+    ILogger<JobDispatcher> logger) : BackgroundService, IDispatchWakeUp
 {
     /// <summary>Dispatches one job, including retries. Public so it can be tested without the hosting loop.</summary>
     public Task DispatchAsync(string jobId, CancellationToken cancellationToken) =>
         throw new NotImplementedException();
 
-    // TODO: consume queue.ReadAllAsync and call DispatchAsync (bounded parallelism so one retrying job doesn't block the rest).
+    public void SlotFreed() => throw new NotImplementedException();
+
+    // TODO: consume queue.ReadAllAsync and call DispatchAsync for one job at a time (FIFO).
     protected override Task ExecuteAsync(CancellationToken stoppingToken) => Task.CompletedTask;
 }

@@ -29,7 +29,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IJobDispatchQueue, ChannelJobDispatchQueue>();
         services.AddSingleton<IResultsIngestionQueue, ChannelResultsIngestionQueue>();
 
-        services.AddSingleton<IJobEventHandler, JobEventHandler>();
+        services.AddSingleton<IProcessingEventHandler, ProcessingEventHandler>();
         services.AddSingleton<ProcessorEventsSocketHandler>();
 
         // Retries are owned by JobDispatcher (long outages, Busy backoff) — no resilience handler here to avoid nested retries.
@@ -42,6 +42,7 @@ public static class ServiceCollectionExtensions
 
         // Registered as singletons too, so tests (and the WebSocket handler) can resolve them directly.
         services.AddSingleton<JobDispatcher>();
+        services.AddSingleton<IDispatchWakeUp>(sp => sp.GetRequiredService<JobDispatcher>());
         services.AddHostedService(sp => sp.GetRequiredService<JobDispatcher>());
         services.AddSingleton<ResultsIngestor>();
         services.AddHostedService(sp => sp.GetRequiredService<ResultsIngestor>());

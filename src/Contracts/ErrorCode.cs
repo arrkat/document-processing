@@ -1,26 +1,26 @@
 namespace Contracts;
 
-/// <summary>Machine-readable reason for a job-level failure. Shared by the REST API and WebSocket events.</summary>
+/// <summary>
+/// Machine-readable reason for a job-level failure. Shared by the REST API and WebSocket events.
+/// A job is failed only when waiting cannot help; transient problems are retried first.
+/// </summary>
 public enum ErrorCode
 {
-    /// <summary>Job Service could not hand the job to the Processor after all retries.</summary>
+    /// <summary>The Processor could not be reached during the whole (bounded) dispatch retry window.</summary>
     ProcessorUnavailable,
 
-    /// <summary>Processor permanently rejected the job (e.g. 400).</summary>
+    /// <summary>The Processor rejected the request as invalid (400); resending would give the same answer.</summary>
     ProcessorRejected,
 
-    /// <summary>No events for too long and the Processor does not know the job (crash / restart).</summary>
+    /// <summary>A Processing job had no activity for too long and the Processor no longer knows it (crash / restart).</summary>
     ProcessorTimeout,
 
-    /// <summary>Processor is shutting down and abandoned the job.</summary>
-    ProcessorShuttingDown,
-
-    /// <summary>Processor could not read the documents blob.</summary>
+    /// <summary>The Processor could not read the documents blob.</summary>
     InputUnavailable,
 
-    /// <summary>Job Service could not read the results blob after all retries.</summary>
+    /// <summary>The Job Service could not read the results blob after all retries.</summary>
     ResultsUnavailable,
 
-    /// <summary>Unexpected error in the processing pipeline.</summary>
+    /// <summary>Unexpected error in the processing pipeline (a bug).</summary>
     Unexpected
 }

@@ -1,15 +1,15 @@
 using Contracts.Processing;
 using ProcessorService.Jobs;
-using ProcessorService.Queue;
+using ProcessorService.Processing;
 using ProcessorService.Validation;
 
-namespace ProcessorService.Application;
+namespace ProcessorService.Intake;
 
-public sealed class ProcessingService(
+public sealed class JobIntake(
     IProcessJobRequestValidator validator,
     IJobRegistry registry,
-    IProcessingQueue queue,
-    ILogger<ProcessingService> logger) : IProcessingService
+    IJobRunner runner,
+    ILogger<JobIntake> logger) : IJobIntake
 {
     public SubmitOutcome Submit(ProcessJobRequest? request) => throw new NotImplementedException();
 

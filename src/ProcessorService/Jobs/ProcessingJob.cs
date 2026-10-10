@@ -1,4 +1,4 @@
 namespace ProcessorService.Jobs;
 
-/// <summary>Unit of work in the intake queue. Documents are loaded from <see cref="DocumentsRef"/> only when a worker picks the job.</summary>
+/// <summary>A job accepted for processing. Documents are read from <see cref="DocumentsRef"/> when processing starts.</summary>
 public sealed record ProcessingJob(string JobId, string DocumentsRef, int DocumentCount);

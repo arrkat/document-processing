@@ -1,4 +1,3 @@
-using Contracts.Documents;
 using Contracts.Jobs;
 using JobService.Domain;
 
@@ -19,11 +18,5 @@ public sealed class InMemoryJobRepository : IJobRepository
         throw new NotImplementedException();
 
     public Task<StateUpdateResult> TryUpdateStateAsync(string jobId, Func<JobState, JobState?> update, CancellationToken cancellationToken = default) =>
-        throw new NotImplementedException();
-
-    public Task SaveResultsAsync(string jobId, IReadOnlyList<DocumentResult> results, CancellationToken cancellationToken = default) =>
-        throw new NotImplementedException();
-
-    public Task<IReadOnlyList<DocumentResult>?> GetResultsAsync(string jobId, CancellationToken cancellationToken = default) =>
         throw new NotImplementedException();
 }

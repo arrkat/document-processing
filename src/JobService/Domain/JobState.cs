@@ -45,7 +45,7 @@ public sealed record ProcessingState(
 
     public ProcessingState Progress(int processedDocuments, DateTimeOffset at, long sequence) => throw new NotImplementedException();
 
-    /// <summary>Called by the results ingestor once the results are stored — not directly by the JobCompleted event.</summary>
+    /// <summary>Called by the results ingestor once the results are stored — not directly by the ProcessingFinished event.</summary>
     public CompletedState Complete(DateTimeOffset at) => throw new NotImplementedException();
 
     public FailedState Fail(ErrorCode errorCode, string? errorMessage, DateTimeOffset at) => throw new NotImplementedException();

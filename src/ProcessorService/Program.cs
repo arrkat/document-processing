@@ -1,6 +1,4 @@
-using System.Text.Json.Serialization;
 using BlobStorage;
-using ProcessorService.Endpoints;
 
 namespace ProcessorService;
 
@@ -10,11 +8,11 @@ public class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
-        builder.Services.AddEndpointsApiExplorer();
-        builder.Services.AddSwaggerGen();
+        builder.Services.AddApiControllers();
+        builder.Services.AddSwagger("Processor Service",
+            "Analyses the documents of a job (word count, unique words, top 5 words, SHA-256) and reports progress over WebSocket.");
         builder.Services.AddProblemDetails();
         builder.Services.AddHealthChecks();
-        builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
         builder.Services.AddFileSystemBlobStore(
             builder.Configuration["BlobStorage:RootPath"] ?? throw new InvalidOperationException("BlobStorage:RootPath is not configured."),
@@ -27,14 +25,12 @@ public class Program
         app.UseExceptionHandler();
         app.UseStatusCodePages();
 
-        if (app.Environment.IsDevelopment())
-        {
-            app.UseSwagger();
-            app.UseSwaggerUI();
-        }
+        // Always on: Swagger is the documented way to try the POC.
+        app.UseSwagger();
+        app.UseSwaggerUI();
 
         app.MapHealthChecks("/health");
-        app.MapProcessingJobsEndpoints();
+        app.MapControllers();
 
         app.Run();
     }

@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization;
 using BlobStorage;
 using JobService.Endpoints;
 
@@ -10,11 +9,11 @@ public class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
-        builder.Services.AddEndpointsApiExplorer();
-        builder.Services.AddSwaggerGen();
+        builder.Services.AddApiControllers();
+        builder.Services.AddSwagger("Job Service",
+            "Accepts document-processing jobs, tracks their state and serves the results.");
         builder.Services.AddProblemDetails();
         builder.Services.AddHealthChecks();
-        builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
         builder.Services.AddFileSystemBlobStore(
             builder.Configuration["BlobStorage:RootPath"] ?? throw new InvalidOperationException("BlobStorage:RootPath is not configured."),
@@ -28,14 +27,12 @@ public class Program
         app.UseStatusCodePages();
         app.UseWebSockets();
 
-        if (app.Environment.IsDevelopment())
-        {
-            app.UseSwagger();
-            app.UseSwaggerUI();
-        }
+        // Always on: Swagger is the documented way to try the POC.
+        app.UseSwagger();
+        app.UseSwaggerUI();
 
         app.MapHealthChecks("/health");
-        app.MapJobsEndpoints();
+        app.MapControllers();
         app.MapProcessorEventsEndpoint();
 
         app.Run();

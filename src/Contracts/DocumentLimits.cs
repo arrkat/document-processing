@@ -5,6 +5,6 @@ public static class DocumentLimits
 {
     public const int MaxDocumentsPerJob = 1000;
     public const int MaxDocumentIdLength = 128;
-    public const int MaxContentLength = 1_000_000;
+    public const int MaxContentLength = 100_000;
     public const int TopWordsCount = 5;
 }
