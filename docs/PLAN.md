@@ -22,8 +22,8 @@ The graders care about structure, failure handling, concurrency, tests and docum
 | 3 | Processor pipeline | 1.5h | ✅ Done |
 | 4 | Job Service core | 1.5h | ✅ Done |
 | 5 | WebSocket link | 1.5h | ✅ Done |
-| 6 | End-to-end + load | 1h | ⏭ Next |
-| 7 | Docs + deliverables | 1h | ⬜ |
+| 6 | End-to-end + load | 1h | ✅ Done |
+| 7 | Docs + deliverables | 1h | ⏭ Next |
 | 8 | Bonus: Audit Service, only if time remains | — | ⬜ |
 
 Stages 3 and 4 are independent of each other. Stage 5 needs both.
@@ -360,9 +360,27 @@ Production hardening goes in the README's "Known limitations" section instead of
    - Job Service side: `ProcessorEventsReceiver` and `JobEventHandler`.
    - Processor side: `JobEventsSocketClient` with reconnect and snapshot.
    - Tests: duplicate events, out-of-order events, reconnect.
-6. **End-to-end + load.**
-   - An integration test hosts both services in one process (`WebApplicationFactory`, with the WebSocket client wired to the Job Service test server).
-   - `LoadGen`: a seeded vocabulary with a Zipf-like distribution, `--jobs 10 --docs 1000`, reporting throughput and p50/p95 job duration.
+6. **End-to-end + load.** ✅
+   - `TwoServiceHost` hosts both services in one process (two `WebApplicationFactory`s, a shared temp blob folder):
+     - the Job Service's `ProcessorClient` sends through the Processor's test server handler, resolved on the first request (resolving it at startup would start the Processor inside the Job Service's own startup and hang);
+     - the Processor's `IWebSocketConnector` connects to the Job Service's test server.
+   - Tests:
+     - happy path (English, Hebrew, empty) → Completed, results equal `DocumentAnalyzer` on the same documents, also via `GET …/results`
+     - 6 jobs on 2 job slots → some wait as Pending, all Completed
+     - cancel mid-document → 202, stays Processing until the Processor confirms, then Cancelled.
+   - `LoadGen`: a seeded 5,000-word vocabulary with a Zipf-like distribution (weight 1/rank); all jobs submitted concurrently, then polled; reports throughput and p50/p95/max of server-side job time. Exit code 1 if any job did not complete.
+   - **Result** (Release build, Apple M1, 8 cores; `--jobs 10 --docs 1000 --words 200..3000 --seed 42`, 9.8M characters per job, 98M in total):
+
+     | Metric | Value |
+     |---|---|
+     | Status | 10/10 Completed |
+     | Submit (all 10 jobs) | 0.38 s |
+     | Wall time (first submit → last finished) | 1.73 s |
+     | Throughput | ~5,800 documents/s, ~57M characters/s |
+     | Job time, created → completed | p50 1.24 s, p95 1.27 s |
+     | Processing, started → completed | p50 1.11 s, p95 1.15 s |
+
+     With 10 jobs, p95 is effectively the max.
 7. **Docs + deliverables.**
    - Every README section from the spec, including AI usage with representative prompts and a rejected suggestion. Good examples are the `Parallel.ForEachAsync` fairness claim and results-in-events.
    - A Postman collection.
