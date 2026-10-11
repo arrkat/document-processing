@@ -207,11 +207,14 @@ All ten jobs finished within ~40 ms of each other, which is what jobs sharing th
 - **Code:** from the document analyzer (stage 2) on, Claude wrote the tests and the implementation for each stage, test list first. I reviewed every change before it was committed. The skeleton (interfaces, contracts, DI) was also AI-assisted.
 - **Docs and tooling:** this README, the Postman collection, the Docker files, LoadGen and the coverage script.
 
-**Representative prompts.**
-- "PLAN.md → look at this and know that we are currently at stage 6. Start working on it."
-- "How do I know that it's actually dividing the work evenly between jobs? Since this happens so fast I can barely notice the fairness."
-- "Can you add coverlet.collector with ReportGenerator so I know how much of the code is covered test-wise?"
-- Per stage: "propose the test list first", then "implement stage N".
+**Representative prompts** (lightly cleaned up), with what each one changed:
+- *"Read the home assignment… I already wrote a rough draft of the architecture. Your mission is to help me spot blind spots in it, missing stuff, and plan the stages before actually starting to code."* This started a design review before any code was written. It surfaced the missing "Processor unreachable" handling, thread-safety bugs in my mutable `JobState`, and the false assumption that `Parallel.ForEachAsync` alone gives fairness between jobs.
+- *"In a real-world scenario, messages should carry metadata."* followed by *"By a link to the blob storage sounds the best… but is it hard to implement here?"* This led to the claim-check design: `documents.json` / `results.json` in a shared blob store, with only references in requests and events.
+- *"Why does this service need to enter the job into its own queue before working on it? Why not just have the Job Service send the jobs when the worker can actually work on them?"* This removed the Processor's intake queue. One waiting line remains, in the Job Service, and a busy Processor answers `503`.
+- *"The Processor Service is the one who knows the job's progress state… Marking it Cancelled while the Processor is still processing seems like a lie… And I'm not sure why the Job Service needs to ingest the results at all."* This produced the "decide before the handover, record after it" rule, cancel as a command to the Processor, and the removal of the results-ingestion step.
+- *"I just wouldn't rush to declare a job as Failed."* followed by *"I'm not too keen on endless retries; that's not something I'd do in production."* The result: bounded retries before the handover, no guessing after it, and a retry endpoint documented as the next step.
+- *"Some of these are testing the same things from different classes… That looks like multiple things in charge of the same thing."* This exposed that the "already known?" check lived in two classes. Admission moved entirely into `ProcessingWorker.TryStart`, with one owner and one test per rule.
+- *"I need you to explain the problem better before making any changes."* (on an intermittent test failure). Instead of the symptom fix it had started applying, the AI added temporary diagnostics and found the real cause: two shutdown paths racing, plus an exception escaping the WebSocket client during shutdown.
 
 **AI suggestions I changed or rejected.**
 - **Results inside WebSocket events.** The first design sent the analysis results in the `Completed` event. I rejected it: messages should carry metadata. That led to the claim-check design with `results.json`.
