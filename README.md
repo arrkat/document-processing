@@ -33,6 +33,12 @@ Both services share the blob root `data/blobs` at the repo root, set by `BlobSto
 dotnet test
 ```
 
+Code coverage (coverlet + ReportGenerator, restored as a local .NET tool) runs every test project and merges the results into `TestResults/coverage-report/index.html`:
+
+```bash
+scripts/coverage.sh
+```
+
 ## Architecture overview
 
 _TODO_
