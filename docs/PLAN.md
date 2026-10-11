@@ -23,7 +23,7 @@ The graders care about structure, failure handling, concurrency, tests and docum
 | 4 | Job Service core | 1.5h | ✅ Done |
 | 5 | WebSocket link | 1.5h | ✅ Done |
 | 6 | End-to-end + load | 1h | ✅ Done |
-| 7 | Docs + deliverables | 1h | ✅ Done (Docker not yet run) |
+| 7 | Docs + deliverables | 1h | ✅ Done |
 
 Stages 3 and 4 are independent of each other. Stage 5 needs both.
 
