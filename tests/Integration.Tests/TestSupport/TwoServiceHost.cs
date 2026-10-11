@@ -23,7 +23,7 @@ namespace Integration.Tests.TestSupport;
 /// </summary>
 public sealed class TwoServiceHost : IAsyncDisposable
 {
-    private readonly string _blobRoot = Path.Combine(Path.GetTempPath(), "ta9-e2e-" + Guid.NewGuid().ToString("N"));
+    private readonly string _blobRoot = Path.Combine(Path.GetTempPath(), "docproc-e2e-" + Guid.NewGuid().ToString("N"));
     private readonly WebApplicationFactory<JobService.Program> _jobService;
     private readonly WebApplicationFactory<ProcessorService.Program> _processor;
 

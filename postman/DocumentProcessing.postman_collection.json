@@ -1,0 +1,235 @@
+{
+  "info": {
+    "name": "Document Processing",
+    "description": "POC flow for the Job Service (:5100) and Processor Service (:5200). Run both services first (see README).\n\nSuggested order: 1. Create job → 2. Get job (repeat until Completed) → 3. Get results. \"Create job\" stores the new id in the collection variable `jobId`, which the other requests use.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "jobServiceUrl", "value": "http://localhost:5100" },
+    { "key": "processorUrl", "value": "http://localhost:5200" },
+    { "key": "jobId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Happy path",
+      "item": [
+        {
+          "name": "1. Create job",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "const job = pm.response.json();",
+                  "pm.test('job is Pending', () => pm.expect(job.status).to.eql('Pending'));",
+                  "pm.collectionVariables.set('jobId', job.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{jobServiceUrl}}/api/jobs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documents\": [\n    { \"id\": \"english\", \"content\": \"The quick brown fox jumps over the lazy dog. The dog sleeps.\" },\n    { \"id\": \"hebrew\", \"content\": \"שלום עולם, שלום לכולם\" },\n    { \"id\": \"empty\", \"content\": \"\" }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "2. Get job (repeat until Completed)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const details = pm.response.json();",
+                  "console.log(`Job ${details.job.id}: ${details.job.status}, ${details.job.processedDocuments}/${details.job.totalDocuments}`);"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{jobServiceUrl}}/api/jobs/{{jobId}}" }
+        },
+        {
+          "name": "3. Get results",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK (404 means not Completed yet)', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{jobServiceUrl}}/api/jobs/{{jobId}}/results" }
+        },
+        {
+          "name": "List jobs",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{jobServiceUrl}}/api/jobs?page=1&pageSize=20",
+              "host": ["{{jobServiceUrl}}"],
+              "path": ["api", "jobs"],
+              "query": [
+                { "key": "status", "value": "Completed", "disabled": true, "description": "Pending | Processing | Completed | Failed | Cancelled" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Load and cancel",
+      "item": [
+        {
+          "name": "Create job with 1000 documents",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Builds 1000 documents of 2000 words each, so the job runs long enough to watch progress or cancel it.",
+                  "const words = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'theta', 'iota', 'kappa'];",
+                  "const documents = [];",
+                  "for (let d = 1; d <= 1000; d++) {",
+                  "  const text = [];",
+                  "  for (let w = 0; w < 2000; w++) text.push(words[(d * w + w) % words.length]);",
+                  "  documents.push({ id: `doc-${d}`, content: text.join(' ') });",
+                  "}",
+                  "pm.variables.set('largeBody', JSON.stringify({ documents }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "pm.collectionVariables.set('jobId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{jobServiceUrl}}/api/jobs",
+            "body": { "mode": "raw", "raw": "{{largeBody}}" }
+          }
+        },
+        {
+          "name": "Cancel job",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// 202: cancelled (Pending) or cancellation requested (Processing; GET shows Cancelled once the Processor confirms).",
+                  "// 409: the job already finished.",
+                  "pm.test('202 or 409', () => pm.expect(pm.response.code).to.be.oneOf([202, 409]));"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "POST", "url": "{{jobServiceUrl}}/api/jobs/{{jobId}}/cancel" }
+        }
+      ]
+    },
+    {
+      "name": "Invalid input",
+      "item": [
+        {
+          "name": "Create job - invalid documents (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 with field errors', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().errors).to.be.an('object');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{jobServiceUrl}}/api/jobs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documents\": [\n    { \"id\": \"\", \"content\": \"missing id\" },\n    { \"id\": \"dup\", \"content\": \"first\" },\n    { \"id\": \"dup\", \"content\": null }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Create job - no documents (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('400', () => pm.response.to.have.status(400));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{jobServiceUrl}}/api/jobs",
+            "body": { "mode": "raw", "raw": "{ \"documents\": [] }" }
+          }
+        },
+        {
+          "name": "Get unknown job (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('404', () => pm.response.to.have.status(404));"]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{jobServiceUrl}}/api/jobs/does-not-exist" }
+        }
+      ]
+    },
+    {
+      "name": "Processor (internal)",
+      "item": [
+        {
+          "name": "Get processing job status",
+          "request": {
+            "method": "GET",
+            "url": "{{processorUrl}}/api/processing-jobs/{{jobId}}",
+            "description": "The Processor's own view of the job, used by the Job Service watchdog for reconciliation."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        { "name": "Job Service health", "request": { "method": "GET", "url": "{{jobServiceUrl}}/health" } },
+        { "name": "Processor health", "request": { "method": "GET", "url": "{{processorUrl}}/health" } }
+      ]
+    }
+  ]
+}

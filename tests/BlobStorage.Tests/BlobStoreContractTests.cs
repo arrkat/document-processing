@@ -86,7 +86,7 @@ public sealed class InMemoryBlobStoreTests : BlobStoreContractTests
 
 public sealed class FileSystemBlobStoreTests : BlobStoreContractTests, IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "ta9-blobs-" + Guid.NewGuid().ToString("N"));
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "docproc-blobs-" + Guid.NewGuid().ToString("N"));
 
     public FileSystemBlobStoreTests() => Store = new FileSystemBlobStore(_root);
 

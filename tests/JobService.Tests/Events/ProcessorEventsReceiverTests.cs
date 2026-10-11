@@ -22,7 +22,7 @@ public sealed class ProcessorEventsReceiverTests : IDisposable
     public ProcessorEventsReceiverTests() =>
         _factory = new WebApplicationFactory<JobService.Program>().WithWebHostBuilder(builder =>
         {
-            builder.UseSetting("BlobStorage:RootPath", Path.Combine(Path.GetTempPath(), "ta9-ws-" + Guid.NewGuid().ToString("N")));
+            builder.UseSetting("BlobStorage:RootPath", Path.Combine(Path.GetTempPath(), "docproc-ws-" + Guid.NewGuid().ToString("N")));
             builder.ConfigureTestServices(services => services.AddSingleton<IProcessingEventHandler>(_handler));
         });
 

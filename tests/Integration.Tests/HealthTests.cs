@@ -29,5 +29,5 @@ public class HealthTests
     private static WebApplicationFactory<T> CreateFactory<T>() where T : class =>
         new WebApplicationFactory<T>().WithWebHostBuilder(builder =>
             builder.UseSetting("BlobStorage:RootPath",
-                Path.Combine(Path.GetTempPath(), "ta9-it-" + Guid.NewGuid().ToString("N"))));
+                Path.Combine(Path.GetTempPath(), "docproc-it-" + Guid.NewGuid().ToString("N"))));
 }

@@ -483,6 +483,6 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 
-# TA9 project
+# Project
 data/
 *.docx

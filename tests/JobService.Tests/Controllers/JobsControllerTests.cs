@@ -80,7 +80,7 @@ public class JobsControllerTests
     {
         var factory = new WebApplicationFactory<JobService.Program>().WithWebHostBuilder(builder =>
         {
-            builder.UseSetting("BlobStorage:RootPath", Path.Combine(Path.GetTempPath(), "ta9-js-ctrl-" + Guid.NewGuid().ToString("N")));
+            builder.UseSetting("BlobStorage:RootPath", Path.Combine(Path.GetTempPath(), "docproc-js-ctrl-" + Guid.NewGuid().ToString("N")));
             builder.ConfigureTestServices(services => services.AddSingleton(manager));
         });
         return factory.CreateClient();

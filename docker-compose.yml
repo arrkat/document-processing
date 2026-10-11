@@ -1,0 +1,31 @@
+# Both services plus the shared blob volume. Start: docker compose up --build
+# Job Service: http://localhost:5100/swagger   Processor: http://localhost:5200/swagger
+services:
+  job-service:
+    build:
+      context: .
+      dockerfile: src/JobService/Dockerfile
+    ports:
+      - "5100:8080"
+    environment:
+      BlobStorage__RootPath: /data/blobs
+      ProcessorService__BaseUrl: http://processor-service:8080
+    volumes:
+      - blobs:/data/blobs
+
+  processor-service:
+    build:
+      context: .
+      dockerfile: src/ProcessorService/Dockerfile
+    ports:
+      - "5200:8080"
+    environment:
+      BlobStorage__RootPath: /data/blobs
+      JobService__EventsUrl: ws://job-service:8080/ws/processor-events
+    volumes:
+      - blobs:/data/blobs
+    # No depends_on: start order does not matter. The Processor reconnects its WebSocket with backoff,
+    # and the Job Service retries dispatch while the Processor is not up yet.
+
+volumes:
+  blobs:

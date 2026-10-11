@@ -1,6 +1,6 @@
 # Implementation Plan
 
-This is the working plan for the TA9 home assignment. It records the decisions made, the reasoning behind them, and progress. The README summarises the final design; this file shows how it was reached.
+This is the working plan. It records the decisions made, the reasoning behind them, and progress. The README summarises the final design; this file shows how it was reached.
 
 ## Context
 
@@ -23,8 +23,8 @@ The graders care about structure, failure handling, concurrency, tests and docum
 | 4 | Job Service core | 1.5h | ✅ Done |
 | 5 | WebSocket link | 1.5h | ✅ Done |
 | 6 | End-to-end + load | 1h | ✅ Done |
-| 7 | Docs + deliverables | 1h | ⏭ Next |
-| 8 | Bonus: Audit Service, only if time remains | — | ⬜ |
+| 7 | Docs + deliverables | 1h | ✅ Done (Docker not yet run) |
+| 8 | Bonus: Audit Service, only if time remains | — | ⏭ Next |
 
 Stages 3 and 4 are independent of each other. Stage 5 needs both.
 
@@ -381,8 +381,8 @@ Production hardening goes in the README's "Known limitations" section instead of
      | Processing, started → completed | p50 1.11 s, p95 1.15 s |
 
      With 10 jobs, p95 is effectively the max.
-7. **Docs + deliverables.**
-   - Every README section from the spec, including AI usage with representative prompts and a rejected suggestion. Good examples are the `Parallel.ForEachAsync` fairness claim and results-in-events.
+7. **Docs + deliverables.** ✅
+   - Every README section from the spec, including AI usage with representative prompts and rejected suggestions (results in events, `AwaitingResults`, the results-ingestion step → read the blob on GET, the watchdog timeout, the Processor's intake queue → backpressure, extra metadata).
    - A Postman collection.
    - Optional docker-compose with a shared blob volume.
 8. **Bonus: Audit Service.** The Job Service POSTs terminal job summaries to it. Built only if time remains.

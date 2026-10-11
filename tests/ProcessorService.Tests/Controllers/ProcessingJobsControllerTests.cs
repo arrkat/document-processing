@@ -55,7 +55,7 @@ public class ProcessingJobsControllerTests
     {
         var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
-            builder.UseSetting("BlobStorage:RootPath", Path.Combine(Path.GetTempPath(), "ta9-ctrl-" + Guid.NewGuid().ToString("N")));
+            builder.UseSetting("BlobStorage:RootPath", Path.Combine(Path.GetTempPath(), "docproc-ctrl-" + Guid.NewGuid().ToString("N")));
             builder.ConfigureTestServices(services => services.AddSingleton<IProcessingJobManager>(new FixedManager(result)));
         });
         return factory.CreateClient();
