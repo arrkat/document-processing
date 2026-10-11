@@ -6,7 +6,7 @@ More detail: [docs/HAPPY_FLOW.md](docs/HAPPY_FLOW.md) (one job end to end, as a 
 
 ## Build & run
 
-Requires .NET SDK 8.0.4xx (pinned in `global.json`).
+Requires the .NET 8 SDK or newer (`global.json` accepts 8.0.100 and up, including 9 and 10) and the .NET 8 runtime.
 
 ```bash
 dotnet build
@@ -134,7 +134,7 @@ Considered and rejected (full list in [PLAN.md](docs/PLAN.md#considered-and-reje
 **Why.** The analysis is CPU-bound, so running more of it at once than there are cores only adds context switching. The global semaphore caps the real CPU work. The per-job cap keeps one 1,000-document job from taking every core while other jobs wait, so jobs progress side by side. `IDocumentAnalyzer.Analyze` is synchronous on purpose (there is nothing to wait for), while everything that does wait (blob I/O, the semaphore, WebSocket sends) is async. No `.Result`, `.Wait()` or `Thread.Sleep`.
 
 **Limits and trade-offs.**
-- A job's documents are loaded into memory at once, with assumed limits of 1,000 documents × 100,000 characters (the per-document limit is enforced) and about 10M characters per job. Bigger jobs would need streaming.
+- A job's documents are loaded into memory at once, so their size is capped: at most 1,000 documents, 100,000 characters each and 10M characters per job in total (all three enforced). That bounds the Processor to about 200 MB of document text for 10 concurrent jobs.
 - A cancel takes effect between documents (~1 ms each at the size limit), not inside one.
 - Waking waiters on the global semaphore in arrival order is how .NET implements `SemaphoreSlim` today, not a documented guarantee. The hard fairness guarantee is the per-job cap.
 - The dispatch line is unbounded: there is no rate limiting (see limitations).
@@ -155,7 +155,8 @@ All ten jobs finished within ~40 ms of each other, which is what jobs sharing th
 
 | Situation | Behavior |
 |---|---|
-| Invalid input | `400` with every problem by field path (e.g. `documents[1].id`); nothing is stored. Limits: 1–1,000 documents, unique non-empty ids ≤ 128 characters, content ≤ 100,000 characters (empty content is valid) |
+| Invalid input | `400` with every problem by field path (e.g. `documents[1].id`); nothing is stored. Limits: 1–1,000 documents, unique non-empty ids ≤ 128 characters, content ≤ 100,000 characters (empty content is valid), ≤ 10M characters per job in total |
+| Request body over 30 MB | Kestrel's body limit rejects it before validation, and the client gets a generic `500` (in .NET 8 the exception handler maps every exception to 500). No valid job comes near it: 10M Hebrew characters is about 20 MB |
 | Processor unreachable | The job stays `Pending` while the dispatcher retries with exponential backoff for about a minute, then `Failed(ProcessorUnavailable)`. If the Processor comes back in time, the job runs normally |
 | Processor busy | Not a failure: the job waits at the head of the line and is retried when a job finishes |
 | Processor rejects the job | `Failed(ProcessorRejected)` |
@@ -193,7 +194,7 @@ All ten jobs finished within ~40 ms of each other, which is what jobs sharing th
 - **Progress is eventually consistent:** progress events are throttled and may be dropped; final states never are.
 - **Rare double failure:** if both the HTTP replies and the WebSocket are down for the whole retry window, a job can be marked `Failed` although the Processor completed it.
 - **No retention:** finished jobs and blobs are kept forever.
-- **Size limits instead of streaming** (see Concurrency & performance).
+- **Documents are uploaded inside `POST /api/jobs`.** That is what caps a job at 10M characters and a 30 MB body. In production I'd apply the same claim-check as everywhere else: the client uploads the documents to blob storage (e.g. with a pre-signed URL) and the request carries only references. The size limit then becomes a storage concern, the Job Service never handles document contents, and the Processor could stream documents one at a time instead of loading a whole job.
 - **One Processor instance.** Several would need a broker or a coordinator; a message broker is the production choice in general.
 - **Console logging only;** no metrics, tracing or correlation ids yet.
 - **No job priority:** strictly first in, first out.

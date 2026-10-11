@@ -24,7 +24,6 @@ The graders care about structure, failure handling, concurrency, tests and docum
 | 5 | WebSocket link | 1.5h | ✅ Done |
 | 6 | End-to-end + load | 1h | ✅ Done |
 | 7 | Docs + deliverables | 1h | ✅ Done (Docker not yet run) |
-| 8 | Bonus: Audit Service, only if time remains | — | ⏭ Next |
 
 Stages 3 and 4 are independent of each other. Stage 5 needs both.
 
@@ -85,7 +84,7 @@ ProcessingEventHandler: JobStateTransitions.Apply inside an atomic state update 
 
 ### Size assumptions
 
-These are an architectural assumption, documented here and in the README. Only the per-document limit is enforced in code (`DocumentLimits.MaxContentLength`).
+These bound the Processor's memory per job. The validator enforces the document count, the per-document limit (`DocumentLimits.MaxContentLength`) and the per-job total (`DocumentLimits.MaxTotalContentLength`), all as `400`. Kestrel's body limit sits above them: any valid job fits under 30 MB.
 
 | Limit | Value | Roughly |
 |---|---|---|
@@ -306,7 +305,9 @@ Production hardening goes in the README's "Known limitations" section instead of
 | Graceful shutdown with requeue | Today the watchdog catches abandoned jobs |
 | Job priority | Not requested |
 | Retention / eviction of finished jobs and blobs | Job state and blobs grow with job count |
+| Documents uploaded by reference: the client puts them in blob storage (pre-signed URL) and `POST /api/jobs` carries refs | The same claim-check as the rest of the system; removes the body limit, keeps contents out of the Job Service, and enables streaming |
 | Streaming documents (lifting the size limits) | Today a job's documents are loaded at once; see Size assumptions |
+| A body over 30 MB returns a generic 500 | Kestrel's `BadHttpRequestException` (413) is turned into 500 by the .NET 8 exception handler; no valid job reaches 30 MB, so it was left as is |
 | Incremental result writes (resume after a crash) | Today results are written once at the end |
 | Durable storage, a broker, multiple Processors | In-memory is allowed by the spec; each is "swap the implementation" |
 | Pending visibility (attempt count, last dispatch error on the job) | Logged today |
@@ -385,7 +386,6 @@ Production hardening goes in the README's "Known limitations" section instead of
    - Every README section from the spec, including AI usage with representative prompts and rejected suggestions (results in events, `AwaitingResults`, the results-ingestion step → read the blob on GET, the watchdog timeout, the Processor's intake queue → backpressure, extra metadata).
    - A Postman collection.
    - Optional docker-compose with a shared blob volume.
-8. **Bonus: Audit Service.** The Job Service POSTs terminal job summaries to it. Built only if time remains.
 
 ## Verification
 - `dotnet test` passes.

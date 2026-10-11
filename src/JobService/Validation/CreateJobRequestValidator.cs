@@ -6,7 +6,8 @@ namespace JobService.Validation;
 /// <summary>
 /// Rules: documents list present and non-empty, at most <see cref="DocumentLimits.MaxDocumentsPerJob"/>;
 /// each id non-empty, unique, at most <see cref="DocumentLimits.MaxDocumentIdLength"/>;
-/// content non-null (empty is allowed), at most <see cref="DocumentLimits.MaxContentLength"/> characters.
+/// content non-null (empty is allowed), at most <see cref="DocumentLimits.MaxContentLength"/> characters;
+/// all contents together at most <see cref="DocumentLimits.MaxTotalContentLength"/> characters.
 /// Errors are keyed by field path, e.g. <c>documents[2].id</c>, and all of them are reported at once.
 /// </summary>
 public sealed class CreateJobRequestValidator : ICreateJobRequestValidator
@@ -38,6 +39,7 @@ public sealed class CreateJobRequestValidator : ICreateJobRequestValidator
             Add("documents", $"At most {DocumentLimits.MaxDocumentsPerJob} documents are allowed per job.");
 
         var firstIndexById = new Dictionary<string, int>(StringComparer.Ordinal);
+        long totalContentLength = 0;
         for (var i = 0; i < documents.Count; i++)
         {
             var document = documents[i];
@@ -58,7 +60,12 @@ public sealed class CreateJobRequestValidator : ICreateJobRequestValidator
                 Add($"documents[{i}].content", "Content is required (it may be empty).");
             else if (document.Content.Length > DocumentLimits.MaxContentLength)
                 Add($"documents[{i}].content", $"Content must be at most {DocumentLimits.MaxContentLength} characters.");
+
+            totalContentLength += document.Content?.Length ?? 0;
         }
+
+        if (totalContentLength > DocumentLimits.MaxTotalContentLength)
+            Add("documents", $"Total content must be at most {DocumentLimits.MaxTotalContentLength:N0} characters per job (got {totalContentLength:N0}).");
 
         return ToResult(errors);
     }

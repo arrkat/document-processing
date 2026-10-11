@@ -17,7 +17,8 @@ public sealed class JobsController(IJobManager manager) : ControllerBase
     /// <remarks>
     /// Validates the documents, stores them and queues the job for processing. Returns immediately with the job in
     /// <c>Pending</c>; follow the <c>Location</c> header (GET /api/jobs/{jobId}) to track it.
-    /// Limits: 1–1000 documents; ids non-empty, unique, at most 128 characters; content non-null, at most 100,000 characters.
+    /// Limits: 1–1000 documents; ids non-empty, unique, at most 128 characters; content non-null, at most 100,000 characters;
+    /// at most 10,000,000 characters per job in total. A request body over 30 MB (Kestrel's limit) fails before validation, with 500.
     /// </remarks>
     /// <response code="202">Job created and queued.</response>
     /// <response code="400">Invalid request; <c>errors</c> lists every problem by field path (e.g. <c>documents[1].id</c>).</response>

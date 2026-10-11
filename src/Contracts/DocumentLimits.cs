@@ -6,5 +6,8 @@ public static class DocumentLimits
     public const int MaxDocumentsPerJob = 1000;
     public const int MaxDocumentIdLength = 128;
     public const int MaxContentLength = 100_000;
+
+    /// <summary>Total characters across all documents of a job (~10 MB of text); bounds the Processor's memory per job.</summary>
+    public const int MaxTotalContentLength = 10_000_000;
     public const int TopWordsCount = 5;
 }

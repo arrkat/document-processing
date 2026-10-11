@@ -22,6 +22,19 @@ public class CreateJobRequestValidatorTests
         Assert.Empty(_validator.Validate(Request(new DocumentInput("a", ""), new DocumentInput("b", "   "))));
     }
 
+    /// <summary>100 documents of the maximum length (one shared string), exactly the per-job total limit; plus optional extra documents.</summary>
+    private static CreateJobRequest AtTotalLimit(params DocumentInput[] extra)
+    {
+        var maxContent = new string('x', 100_000);
+        return new CreateJobRequest(Enumerable.Range(0, 100).Select(i => new DocumentInput($"d{i}", maxContent)).Concat(extra).ToList());
+    }
+
+    [Fact]
+    public void Total_content_at_the_job_limit_is_valid()
+    {
+        Assert.Empty(_validator.Validate(AtTotalLimit()));
+    }
+
     public static TheoryData<string, CreateJobRequest?, string> InvalidCases => new()
     {
         { "missing body", null, "request" },
@@ -33,6 +46,7 @@ public class CreateJobRequestValidatorTests
         { "duplicate id", Request(new DocumentInput("a", "x"), new DocumentInput("b", "y"), new DocumentInput("a", "z")), "documents[2].id" },
         { "null content", Request(new DocumentInput("a", null!)), "documents[0].content" },
         { "content too long", Request(new DocumentInput("a", new string('x', 100_001))), "documents[0].content" },
+        { "total content too long", AtTotalLimit(new DocumentInput("one-more", "x")), "documents" },
     };
 
     [Theory]
