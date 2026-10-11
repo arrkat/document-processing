@@ -185,6 +185,7 @@ All ten jobs finished within ~40 ms of each other, which is what jobs sharing th
 
 ## Known limitations & production improvements
 
+- **No authentication between the services.** Anyone who can reach `/ws/processor-events` could send fake processing events, and anyone who can reach the Processor could submit or cancel work. In production: service-to-service auth (a client-credentials token checked on the WebSocket upgrade and on the Processor's API, or mTLS), with both kept on an internal network so only the Job Service's public API is exposed.
 - **No idempotency on job creation.** A double click or a client retry creates a duplicate job. In production: an `Idempotency-Key` header. The server reserves `key → jobId` atomically; a repeat returns the original job, a concurrent repeat gets `409`, and the same key with a different body gets `422`.
 - **No rate limiting.** Any number of jobs can be submitted; they wait in the dispatch line in memory. The Processor's job slots still bound the processing work. In production: ASP.NET Core rate limiting (`429`).
 - **In-memory job state.** A Job Service restart loses all jobs (later events for them are logged and ignored). In production: SQLite or Postgres behind `IJobRepository`.

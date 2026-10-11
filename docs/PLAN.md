@@ -300,6 +300,7 @@ Production hardening goes in the README's "Known limitations" section instead of
 | Automatic requeue after a Processor restart, with a poison-job cap | Today the watchdog fails the job; retry would be the recovery path |
 | Run id per Processor start | After a restart, the same job's sequence numbers restart, so progress can appear to jump backwards. Harmless |
 | Double failure: HTTP replies *and* the WebSocket down for the whole retry window | The job is marked Failed although it completed; "first terminal state wins" keeps it Failed |
+| Service-to-service authentication: a client-credentials token (or mTLS) checked on the WebSocket upgrade and on the Processor's API, plus an internal network for both | Today anyone who can reach `/ws/processor-events` could send fake events, and anyone who can reach the Processor could submit or cancel work. The spec lists auth as not required |
 | Idempotency-Key on `POST /api/jobs` | Duplicate jobs on double clicks or client retries |
 | Rate limiting (429) | Today any number of jobs can be submitted; they wait in the dispatch line (memory). The Processor's job slots still bound the processing work |
 | Graceful shutdown with requeue | Today the watchdog catches abandoned jobs |
